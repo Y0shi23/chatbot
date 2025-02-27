@@ -17,9 +17,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
-      <body className={inter.className}>
+      <body className="pt-16">
         <Navigation />
-        <main className="container mx-auto px-4">{children}</main>
+        <main>{children}</main>
       </body>
     </html>
   );

@@ -1,6 +1,8 @@
+// 3つの主要なエンドポイントを提供：
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"app/services"
@@ -18,6 +20,7 @@ func NewChatHandler(chatService *services.ChatService) *ChatHandler {
 	}
 }
 
+// 新しいチャットを作成
 func (h *ChatHandler) CreateChat(c *gin.Context) {
 	var req struct {
 		Message string `json:"message"`
@@ -37,17 +40,21 @@ func (h *ChatHandler) CreateChat(c *gin.Context) {
 		return
 	}
 
-	chatID, err := h.chatService.CreateNewChat(req.Message)
+	chatID, messages, err := h.chatService.CreateNewChat(req.Message)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create chat"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to create chat: %v", err),
+		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"chatId": chatID,
+		"chatId":   chatID,
+		"messages": messages,
 	})
 }
 
+// 特定のチャットの履歴を取得
 func (h *ChatHandler) GetChat(c *gin.Context) {
 	chatID := c.Param("id")
 	chat, exists := h.chatService.GetChat(chatID)
@@ -61,6 +68,7 @@ func (h *ChatHandler) GetChat(c *gin.Context) {
 	})
 }
 
+// 既存のチャットにメッセージを追加
 func (h *ChatHandler) AddMessage(c *gin.Context) {
 	chatID := c.Param("id")
 	var req struct {
@@ -85,5 +93,20 @@ func (h *ChatHandler) AddMessage(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": message,
 		"status":  "success",
+	})
+}
+
+// チャット履歴を取得
+func (h *ChatHandler) GetChatHistory(c *gin.Context) {
+	chats, err := h.chatService.GetChatHistory()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch chat history",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"chats": chats,
 	})
 }

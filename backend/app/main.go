@@ -60,6 +60,7 @@ func main() {
 
 	// ルーティング
 	engine.POST("/api/chat", chatHandler.CreateChat)
+	engine.GET("/api/chat/history", chatHandler.GetChatHistory)
 	engine.GET("/api/chat/:id", chatHandler.GetChat)
 	engine.POST("/api/chat/:id", chatHandler.AddMessage)
 
