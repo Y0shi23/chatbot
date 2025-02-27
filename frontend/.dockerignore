@@ -1,0 +1,6 @@
+chatbot/.next
+chatbot/node_modules
+chatbot/.git
+chatbot/README.md
+chatbot/.env*
+chatbot/*.log 
