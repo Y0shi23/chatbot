@@ -3,27 +3,56 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
+import { useSidebar } from '@/context/SidebarContext'
 
 export default function Navigation() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuth();
+  const { toggleSidebar } = useSidebar();
   
   const handleLogout = () => {
     logout();
     router.push('/');
   };
+
+  // チャット関連のページかどうかを判定
+  const isChatPage = pathname.startsWith('/chat');
   
   return (
     <nav className="bg-gray-800 text-white h-16 fixed top-0 w-full z-50">
       <div className="h-full px-4 flex justify-between items-center">
-        <Link href="/" className="text-xl font-bold">
-          ChatBot
-        </Link>
+        <div className="flex items-center">
+          {isChatPage && (
+            <button
+              onClick={toggleSidebar}
+              className="mr-3 md:hidden"
+              aria-label="Toggle sidebar"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
+              </svg>
+            </button>
+          )}
+          <Link href="/" className="text-xl font-bold">
+            ChatBot
+          </Link>
+        </div>
         <div className="flex items-center gap-4">          
           {isAuthenticated ? (
             <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-300">
+              <span className="text-sm text-gray-300 hidden sm:inline">
                 こんにちは、{user?.username}さん
               </span>
               <button 

@@ -91,16 +91,27 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setIsLoading(true);
       setError(null);
       
-      const response = await fetch('http://localhost:3000/api/auth/login', {
+      console.log('Attempting to login with:', email);
+      
+      // Use the API URL from environment variables or fallback to localhost
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const loginUrl = `${apiUrl}/api/auth/login`;
+      console.log('Using login URL:', loginUrl);
+      
+      const response = await fetch(loginUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ email, password }),
+        credentials: 'include', // Include cookies in the request
       });
 
+      console.log('Login response status:', response.status);
+      
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Login error:', errorData);
         throw new Error(errorData.error || 'Login failed');
       }
 

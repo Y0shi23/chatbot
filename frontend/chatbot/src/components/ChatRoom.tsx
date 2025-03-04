@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import ChatSidebar from './ChatSidebar';
+import { useSidebar } from '@/context/SidebarContext';
+import { parseMessageContent } from '@/utils/messageParser';
 
 interface Message {
   id: string;
@@ -17,6 +19,7 @@ export default function ChatRoom() {
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const { isSidebarOpen } = useSidebar();
 
   useEffect(() => {
     fetchMessages();
@@ -49,15 +52,27 @@ export default function ChatRoom() {
     setIsLoading(true);
     setError('');
 
+    // 送信前にユーザーメッセージを一時的に表示
+    const tempUserMessage: Message = {
+      id: `temp-${Date.now()}`,
+      content: newMessage,
+      role: 'user',
+      timestamp: new Date().toISOString(),
+    };
+    
+    setMessages(prev => [...prev, tempUserMessage]);
+    const messageToSend = newMessage;
+    setNewMessage('');
+
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3000/api/chat/${params.id}/messages`, {
+      const response = await fetch(`http://localhost:3000/api/chat/${params.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ content: newMessage }),
+        body: JSON.stringify({ message: messageToSend }),
       });
 
       if (!response.ok) {
@@ -65,23 +80,33 @@ export default function ChatRoom() {
       }
 
       const data = await response.json();
-      setMessages(prev => [...prev, data.message]);
-      setNewMessage('');
+      
+      // 一時メッセージを削除して、サーバーからの応答で更新
+      fetchMessages();
     } catch (err) {
+      // エラーの場合、一時メッセージを削除
+      setMessages(prev => prev.filter(msg => msg.id !== tempUserMessage.id));
       setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
+      // 入力内容を復元
+      setNewMessage(messageToSend);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="flex">
+    <>
       <ChatSidebar />
-      <div className="flex-1 ml-64">
-        <div className="h-[calc(100vh-4rem)] bg-gray-100 flex flex-col">
-          <div className="flex-1 p-4">
-            <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 h-full flex flex-col">
-              <div className="flex-1 space-y-4 mb-6 overflow-y-auto">
+      <div 
+        className={`
+          flex-1 transition-all duration-300
+          ${isSidebarOpen ? 'ml-0 md:ml-64' : 'ml-0'}
+        `}
+      >
+        <div className="h-[calc(100vh-4rem)] bg-gray-100 flex flex-col overflow-hidden">
+          <div className="flex-1 p-4 overflow-hidden">
+            <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-4 h-full flex flex-col overflow-hidden">
+              <div className="flex-1 space-y-4 overflow-y-auto mb-4 pt-2">
                 {messages.map((message) => (
                   <div
                     key={message.id}
@@ -91,12 +116,19 @@ export default function ChatRoom() {
                         : 'bg-gray-100 mr-auto max-w-[80%]'
                     }`}
                   >
-                    <p className="text-gray-800 whitespace-pre-wrap">{message.content}</p>
+                    <div className="text-gray-800">
+                      {parseMessageContent(message.content)}
+                    </div>
                     <p className="text-xs text-gray-500 mt-1">
                       {new Date(message.timestamp).toLocaleString()}
                     </p>
                   </div>
                 ))}
+                {isLoading && (
+                  <div className="bg-gray-100 mr-auto max-w-[80%] p-4 rounded-lg">
+                    <p className="text-gray-500">応答を生成中...</p>
+                  </div>
+                )}
               </div>
 
               {error && (
@@ -105,14 +137,14 @@ export default function ChatRoom() {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
+              <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+                <div className="rounded-lg overflow-hidden">
                   <textarea
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="メッセージを入力してください..."
                     className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    rows={4}
+                    rows={3}
                     disabled={isLoading}
                   />
                 </div>
@@ -130,6 +162,6 @@ export default function ChatRoom() {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 } 

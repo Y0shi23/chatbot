@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import Navigation from "@/components/Navigation";
 import { AuthProvider } from "@/context/AuthContext";
+import { SidebarProvider } from "@/context/SidebarContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,8 +21,10 @@ export default function RootLayout({
     <html lang="ja">
       <body className="pt-16">
         <AuthProvider>
-          <Navigation />
-          <main>{children}</main>
+          <SidebarProvider>
+            <Navigation />
+            <main>{children}</main>
+          </SidebarProvider>
         </AuthProvider>
       </body>
     </html>

@@ -27,5 +27,9 @@ export default function ChatPage() {
     return null;
   }
 
-  return <NewChatForm />;
+  return (
+    <div className="flex">
+      <NewChatForm />
+    </div>
+  );
 } 

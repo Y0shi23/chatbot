@@ -285,7 +285,7 @@ func (s *ChatService) generateOpenAIResponse(messages []models.Message) (string,
 	resp, err := s.openAIClient.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model:       openai.GPT3Dot5Turbo,
+			Model:       "gpt-4o-mini", //GPT-4o-1miniを使用
 			Messages:    openAIMessages,
 			MaxTokens:   500,
 			Temperature: 0.7,
