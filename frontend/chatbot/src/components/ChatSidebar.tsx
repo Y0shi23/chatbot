@@ -44,36 +44,34 @@ export default function ChatSidebar() {
   }, []);
 
   return (
-    <div className="w-64 bg-gray-800 text-white h-screen fixed left-0 top-0 overflow-y-auto">
-      <div className="p-4">
-        <Link
-          href="/chat"
-          className="block w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 rounded text-center mb-4"
-        >
-          新規チャット
-        </Link>
+    <div className="w-64 bg-gray-800 text-white h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto">
+      <Link
+        href="/chat"
+        className="block w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-center"
+      >
+        新規チャット
+      </Link>
 
-        {isLoading ? (
-          <div className="text-center">読み込み中...</div>
-        ) : (
-          <div className="space-y-2">
-            {chats.map((chat) => (
-              <Link
-                key={chat.id}
-                href={`/chat/${chat.id}`}
-                className={`block p-3 rounded hover:bg-gray-700 ${
-                  chat.id === currentChatId ? 'bg-gray-700' : ''
-                }`}
-              >
-                <div className="font-medium truncate">{chat.title}</div>
-                <div className="text-sm text-gray-400">
-                  {new Date(chat.lastMessageAt).toLocaleDateString()}
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
+      {isLoading ? (
+        <div className="text-center p-4">読み込み中...</div>
+      ) : (
+        <div className="space-y-1 mt-2">
+          {chats.map((chat) => (
+            <Link
+              key={chat.id}
+              href={`/chat/${chat.id}`}
+              className={`block px-4 py-2 hover:bg-gray-700 ${
+                chat.id === currentChatId ? 'bg-gray-700' : ''
+              }`}
+            >
+              <div className="font-medium truncate">{chat.title}</div>
+              <div className="text-sm text-gray-400">
+                {new Date(chat.lastMessageAt).toLocaleDateString()}
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 } 

@@ -15,8 +15,8 @@ export default function Navigation() {
   };
   
   return (
-    <nav className="bg-gray-800 text-white p-4 fixed top-0 w-full z-50">
-      <div className="container mx-auto flex justify-between items-center">
+    <nav className="bg-gray-800 text-white h-16 fixed top-0 w-full z-50">
+      <div className="h-full px-4 flex justify-between items-center">
         <Link href="/" className="text-xl font-bold">
           ChatBot
         </Link>
