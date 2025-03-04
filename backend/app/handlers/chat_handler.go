@@ -22,6 +22,13 @@ func NewChatHandler(chatService *services.ChatService) *ChatHandler {
 
 // 新しいチャットを作成
 func (h *ChatHandler) CreateChat(c *gin.Context) {
+	// ユーザーIDを取得
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	var req struct {
 		Message string `json:"message"`
 	}
@@ -40,7 +47,7 @@ func (h *ChatHandler) CreateChat(c *gin.Context) {
 		return
 	}
 
-	chatID, messages, err := h.chatService.CreateNewChat(req.Message)
+	chatID, messages, err := h.chatService.CreateNewChat(req.Message, userID.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": fmt.Sprintf("Failed to create chat: %v", err),
@@ -56,8 +63,15 @@ func (h *ChatHandler) CreateChat(c *gin.Context) {
 
 // 特定のチャットの履歴を取得
 func (h *ChatHandler) GetChat(c *gin.Context) {
+	// ユーザーIDを取得
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	chatID := c.Param("id")
-	chat, exists := h.chatService.GetChat(chatID)
+	chat, exists := h.chatService.GetChat(chatID, userID.(string))
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Chat not found"})
 		return
@@ -70,6 +84,13 @@ func (h *ChatHandler) GetChat(c *gin.Context) {
 
 // 既存のチャットにメッセージを追加
 func (h *ChatHandler) AddMessage(c *gin.Context) {
+	// ユーザーIDを取得
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	chatID := c.Param("id")
 	var req struct {
 		Message string `json:"message" binding:"required"`
@@ -79,7 +100,7 @@ func (h *ChatHandler) AddMessage(c *gin.Context) {
 		return
 	}
 
-	message, err := h.chatService.AddMessage(chatID, req.Message)
+	message, err := h.chatService.AddMessage(chatID, req.Message, userID.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate response"})
 		return
@@ -98,7 +119,14 @@ func (h *ChatHandler) AddMessage(c *gin.Context) {
 
 // チャット履歴を取得
 func (h *ChatHandler) GetChatHistory(c *gin.Context) {
-	chats, err := h.chatService.GetChatHistory()
+	// ユーザーIDを取得
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	chats, err := h.chatService.GetChatHistory(userID.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to fetch chat history",

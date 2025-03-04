@@ -16,6 +16,12 @@ services:
       DB_PORT: ${DB_PORT}
     networks:
       - mynetwork
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # Goバックエンド（Gin）
   backend:
@@ -33,9 +39,11 @@ services:
       - DB_PASSWORD=${POSTGRES_PASS}
       - DB_NAME=${POSTGRES_DB}
       - DB_PORT=5432
+      - JWT_SECRET=${JWT_SECRET}
     tty: true 
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       mynetwork:
         aliases:

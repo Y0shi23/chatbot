@@ -33,7 +33,7 @@ func NewChatService(db *sql.DB, openAIClient *openai.Client) *ChatService {
 	}
 }
 
-func (s *ChatService) CreateNewChat(message string) (string, []models.Message, error) {
+func (s *ChatService) CreateNewChat(message string, userID string) (string, []models.Message, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to begin transaction: %v", err)
@@ -56,9 +56,9 @@ func (s *ChatService) CreateNewChat(message string) (string, []models.Message, e
 	}
 
 	_, err = tx.Exec(`
-		INSERT INTO chats (id, title, message_count, last_message_at) 
-		VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-	`, chatID, title, 2)
+		INSERT INTO chats (id, title, message_count, last_message_at, user_id) 
+		VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4)
+	`, chatID, title, 2, userID)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to insert chat: %v", err)
 	}
@@ -115,8 +115,20 @@ func (s *ChatService) CreateNewChat(message string) (string, []models.Message, e
 }
 
 // 指定されたチャットIDの会話履歴を取得
-func (s *ChatService) GetChat(chatID string) (*models.Chat, bool) {
+func (s *ChatService) GetChat(chatID string, userID string) (*models.Chat, bool) {
 	chat := &models.Chat{ID: chatID}
+
+	// チャットの所有権を確認
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM chats
+		WHERE id = $1 AND user_id = $2
+	`, chatID, userID).Scan(&count)
+
+	if err != nil || count == 0 {
+		return nil, false
+	}
 
 	// メッセージを時系列順に取得
 	rows, err := s.db.Query(`
@@ -146,12 +158,29 @@ func (s *ChatService) GetChat(chatID string) (*models.Chat, bool) {
 	return chat, true
 }
 
-func (s *ChatService) AddMessage(chatID string, message string) (*models.Message, error) {
+func (s *ChatService) AddMessage(chatID string, message string, userID string) (*models.Message, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
+
+	// チャットの所有権を確認
+	var exists bool
+	err = tx.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 
+			FROM chats 
+			WHERE id = $1 AND user_id = $2
+		)
+	`, chatID, userID).Scan(&exists)
+
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, nil
+	}
 
 	// チャットのメタデータを更新
 	_, err = tx.Exec(`
@@ -162,16 +191,6 @@ func (s *ChatService) AddMessage(chatID string, message string) (*models.Message
 	`, chatID)
 	if err != nil {
 		return nil, err
-	}
-
-	// チャットの存在確認
-	var exists bool
-	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM chats WHERE id = $1)", chatID).Scan(&exists)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, nil
 	}
 
 	// ユーザーメッセージを保存
@@ -281,7 +300,7 @@ func (s *ChatService) generateOpenAIResponse(messages []models.Message) (string,
 }
 
 // すべてのチャット履歴を取得
-func (s *ChatService) GetChatHistory() ([]models.ChatSummary, error) {
+func (s *ChatService) GetChatHistory(userID string) ([]models.ChatSummary, error) {
 	rows, err := s.db.Query(`
 		WITH FirstMessages AS (
 			SELECT DISTINCT ON (chat_id)
@@ -300,8 +319,9 @@ func (s *ChatService) GetChatHistory() ([]models.ChatSummary, error) {
 			fm.content as first_message
 		FROM chats c
 		LEFT JOIN FirstMessages fm ON c.id = fm.chat_id
+		WHERE c.user_id = $1
 		ORDER BY c.last_message_at DESC
-	`)
+	`, userID)
 	if err != nil {
 		return nil, err
 	}

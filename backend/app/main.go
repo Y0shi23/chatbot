@@ -23,6 +23,12 @@ func main() {
 	}
 	openAIClient := openai.NewClient(apiKey)
 
+	// JWT secret の確認
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		panic("JWT_SECRET is not set")
+	}
+
 	// データベース接続の初期化
 	db, err := db.NewDB()
 	if err != nil {
@@ -33,6 +39,10 @@ func main() {
 	// サービスとハンドラーの初期化
 	chatService := services.NewChatService(db, openAIClient)
 	chatHandler := handlers.NewChatHandler(chatService)
+
+	// ユーザー認証サービスとハンドラーの初期化
+	userService := services.NewUserService(db)
+	authHandler := handlers.NewAuthHandler(userService)
 
 	// リリースモードに設定
 	gin.SetMode(gin.ReleaseMode)
@@ -58,11 +68,20 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// ルーティング
-	engine.POST("/api/chat", chatHandler.CreateChat)
-	engine.GET("/api/chat/history", chatHandler.GetChatHistory)
-	engine.GET("/api/chat/:id", chatHandler.GetChat)
-	engine.POST("/api/chat/:id", chatHandler.AddMessage)
+	// 認証ルート（認証不要）
+	engine.POST("/api/auth/register", authHandler.Register)
+	engine.POST("/api/auth/login", authHandler.Login)
+
+	// 認証済みユーザー向けルート
+	authRoutes := engine.Group("/api")
+	authRoutes.Use(handlers.AuthMiddleware(userService))
+	{
+		authRoutes.GET("/auth/me", authHandler.GetCurrentUser)
+		authRoutes.POST("/chat", chatHandler.CreateChat)
+		authRoutes.GET("/chat/history", chatHandler.GetChatHistory)
+		authRoutes.GET("/chat/:id", chatHandler.GetChat)
+		authRoutes.POST("/chat/:id", chatHandler.AddMessage)
+	}
 
 	// サーバーの設定
 	server := &http.Server{
