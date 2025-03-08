@@ -61,6 +61,7 @@ export default function ChannelRoom() {
   const [error, setError] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [editingAttachments, setEditingAttachments] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -115,43 +116,78 @@ export default function ChannelRoom() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() && selectedFiles.length === 0) return;
-
+    
+    if (newMessage.trim() === '' && selectedFiles.length === 0) {
+      return;
+    }
+    
     setIsLoading(true);
     setError('');
-
+    
     try {
       const token = localStorage.getItem('token');
       
-      // メッセージの送信
-      if (newMessage.trim()) {
+      // ファイルがある場合はファイルアップロードとメッセージを一緒に送信
+      if (selectedFiles.length > 0) {
+        const formData = new FormData();
+        
+        // ファイルを追加
+        const file = selectedFiles[0]; // 最初のファイルのみ処理
+        formData.append('file', file);
+        
+        // テキストメッセージを常に追加（空でも）
+        formData.append('content', newMessage);
+        
+        console.log('Uploading file:', file.name, 'size:', file.size, 'type:', file.type);
+        console.log('With message content:', newMessage);
+        
+        try {
+          // Content-Typeヘッダーを設定しない（ブラウザが自動的に設定する）
+          const uploadResponse = await fetch(`http://localhost:3000/api/channels/${params.id}/upload`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+            body: formData,
+          });
+          
+          console.log('Upload response status:', uploadResponse.status);
+          
+          if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            console.error('Upload error:', errorText);
+            try {
+              const errorData = JSON.parse(errorText);
+              throw new Error(errorData.error || 'ファイルのアップロードに失敗しました');
+            } catch (e) {
+              throw new Error('ファイルのアップロードに失敗しました: ' + errorText);
+            }
+          }
+          
+          const responseData = await uploadResponse.json();
+          console.log('Upload success:', responseData);
+        } catch (error) {
+          console.error('Upload error:', error);
+          setError(error instanceof Error ? error.message : '予期せぬエラーが発生しました');
+        }
+      } 
+      // ファイルがなく、テキストメッセージのみの場合
+      else if (newMessage.trim() !== '') {
         const messageResponse = await fetch(`http://localhost:3000/api/channels/${params.id}/messages`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
           },
           body: JSON.stringify({
             content: newMessage,
           }),
         });
-
-        if (!messageResponse.ok) {
-          throw new Error('メッセージの送信に失敗しました');
-        }
-      }
-      
-      // ファイルのアップロード（ファイルがある場合）
-      if (selectedFiles.length > 0) {
-        const formData = new FormData();
-        selectedFiles.forEach(file => {
-          formData.append('files', file);
-        });
         
-        // ここでファイルアップロードのエンドポイントを呼び出す
-        // 現在のバックエンドAPIではファイルアップロードが別途実装されていないため、
-        // 一時的にファイルアップロードをスキップします
-        console.log('ファイルアップロード機能は現在実装されていません');
+        if (!messageResponse.ok) {
+          const errorData = await messageResponse.json().catch(() => ({ error: 'メッセージの送信に失敗しました' }));
+          throw new Error(errorData.error || 'メッセージの送信に失敗しました');
+        }
       }
 
       setNewMessage('');
@@ -159,6 +195,7 @@ export default function ChannelRoom() {
       setPreviewUrls([]);
       fetchMessages();
     } catch (err) {
+      console.error('Error in handleSubmit:', err);
       setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
     } finally {
       setIsLoading(false);
@@ -185,11 +222,13 @@ export default function ChannelRoom() {
   const startEditing = (message: Message) => {
     setEditingMessageId(message.id);
     setEditContent(message.content);
+    setEditingAttachments(message.attachments || []);
   };
 
   const cancelEditing = () => {
     setEditingMessageId(null);
     setEditContent('');
+    setEditingAttachments([]);
   };
 
   const saveEdit = async () => {
@@ -240,15 +279,46 @@ export default function ChannelRoom() {
   };
 
   const renderAttachment = (path: string) => {
+    // パスからファイル名を抽出
     const fileName = path.split('/').pop() || '';
     const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+    
+    // ファイルのURLを構築（パスの重複を防ぐ）
+    let normalizedPath = '';
+    
+    // ファイル名だけの場合（例: 316dc40d-692a-48ea-8ee9-9607d1096589.png）
+    if (!path.includes('/')) {
+      normalizedPath = `/uploads/${path}`;
+    } 
+    // すでにuploadsが含まれている場合（例: uploads/316dc40d-692a-48ea-8ee9-9607d1096589.png）
+    else if (path.includes('uploads/')) {
+      // uploadsの前にスラッシュがない場合は追加
+      if (path.startsWith('uploads/')) {
+        normalizedPath = `/${path}`;
+      } 
+      // すでに/uploads/の形式になっている場合はそのまま使用
+      else if (path.startsWith('/uploads/')) {
+        normalizedPath = path;
+      }
+      // ./uploads/の形式の場合は/uploads/に変換
+      else if (path.startsWith('./uploads/')) {
+        normalizedPath = path.replace('./uploads/', '/uploads/');
+      }
+    }
+    // その他の場合は単純に/uploadsを前に追加
+    else {
+      normalizedPath = `/uploads/${path}`;
+    }
+    
+    const fileUrl = `http://localhost:3000${normalizedPath}`;
+    console.log('Attachment URL:', fileUrl, 'Original path:', path);
     
     // Check if it's an image
     if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt)) {
       return (
         <div className="mt-2">
           <img 
-            src={`http://localhost:3000/api/attachments/${path}`} 
+            src={fileUrl} 
             alt={fileName}
             className="max-w-full max-h-64 rounded"
           />
@@ -264,7 +334,7 @@ export default function ChannelRoom() {
             controls 
             className="max-w-full max-h-64 rounded"
           >
-            <source src={`http://localhost:3000/api/attachments/${path}`} type={`video/${fileExt}`} />
+            <source src={fileUrl} type={`video/${fileExt}`} />
             Your browser does not support the video tag.
           </video>
         </div>
@@ -275,13 +345,12 @@ export default function ChannelRoom() {
     return (
       <div className="mt-2">
         <a 
-          href={`http://localhost:3000/api/attachments/${path}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center text-blue-500 hover:underline"
+          href={fileUrl}
+          download={fileName}
+          className="flex items-center p-2 bg-gray-100 rounded hover:bg-gray-200"
         >
-          <PaperClipIcon />
-          <span className="ml-1">{fileName}</span>
+          <span className="mr-2">📎</span>
+          <span className="text-blue-500 underline">{fileName}</span>
         </a>
       </div>
     );
@@ -318,6 +387,21 @@ export default function ChannelRoom() {
                             className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             rows={3}
                           />
+                          
+                          {/* 編集中のメッセージの添付ファイルを表示 */}
+                          {editingAttachments.length > 0 && (
+                            <div className="mt-3 p-2 border border-gray-200 rounded-lg bg-gray-50">
+                              <div className="text-sm text-gray-500 mb-2">添付ファイル:</div>
+                              <div className="space-y-2">
+                                {editingAttachments.map((path, index) => (
+                                  <div key={index} className="relative group">
+                                    {renderAttachment(path)}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
                           <div className="flex justify-end space-x-2 mt-2">
                             <button
                               onClick={cancelEditing}

@@ -50,8 +50,17 @@ func (s *MessageService) SaveMessage(message models.Message) error {
 		attachmentId := uuid.New().String()
 		fileName := filepath.Base(attachmentPath)
 		fileType := getFileType(fileName)
-		fileInfo, err := os.Stat(attachmentPath)
+
+		// パスの修正: /uploadsで始まる場合は/appを先頭に追加
+		fullPath := attachmentPath
+		if len(attachmentPath) > 0 && attachmentPath[0] == '/' && filepath.HasPrefix(attachmentPath, "/uploads") {
+			fullPath = "/app" + attachmentPath
+			fmt.Println("Adjusted path for stat:", fullPath)
+		}
+
+		fileInfo, err := os.Stat(fullPath)
 		if err != nil {
+			fmt.Printf("Error stating file %s: %v\n", fullPath, err)
 			return err
 		}
 
@@ -200,9 +209,14 @@ func (s *MessageService) DeleteMessage(messageId string) error {
 
 // SaveAttachment saves an uploaded file and returns the file path
 func (s *MessageService) SaveAttachment(file *multipart.FileHeader) (string, error) {
+	fmt.Println("SaveAttachment called for file:", file.Filename)
+
 	// Create uploads directory if it doesn't exist
-	uploadsDir := "./uploads"
+	uploadsDir := "/app/uploads"
+	fmt.Println("Using uploads directory:", uploadsDir)
+
 	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
+		fmt.Println("Failed to create directory:", err)
 		return "", err
 	}
 
@@ -210,10 +224,12 @@ func (s *MessageService) SaveAttachment(file *multipart.FileHeader) (string, err
 	fileExt := filepath.Ext(file.Filename)
 	newFilename := fmt.Sprintf("%s%s", uuid.New().String(), fileExt)
 	filePath := filepath.Join(uploadsDir, newFilename)
+	fmt.Println("Generated file path:", filePath)
 
 	// Open the uploaded file
 	src, err := file.Open()
 	if err != nil {
+		fmt.Println("Failed to open uploaded file:", err)
 		return "", err
 	}
 	defer src.Close()
@@ -221,16 +237,23 @@ func (s *MessageService) SaveAttachment(file *multipart.FileHeader) (string, err
 	// Create the destination file
 	dst, err := os.Create(filePath)
 	if err != nil {
+		fmt.Println("Failed to create destination file:", err)
 		return "", err
 	}
 	defer dst.Close()
 
 	// Copy the uploaded file to the destination file
 	if _, err = io.Copy(dst, src); err != nil {
+		fmt.Println("Failed to copy file:", err)
 		return "", err
 	}
 
-	return filePath, nil
+	fmt.Println("File successfully saved at:", filePath)
+
+	// 返却用のパスは/uploads/ファイル名の形式にする
+	returnPath := fmt.Sprintf("/uploads/%s", newFilename)
+	fmt.Println("Return path:", returnPath)
+	return returnPath, nil
 }
 
 // GetAttachment gets attachment information

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -16,12 +17,18 @@ import (
 )
 
 func main() {
+	// ロガーの設定
+	gin.SetMode(gin.DebugMode)
+	gin.DefaultWriter = os.Stdout
+	log.SetOutput(os.Stdout)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	// OpenAIクライアントの初期化
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
-		panic("OPENAI_API_KEY is not set")
+		fmt.Println("Warning: OPENAI_API_KEY is not set")
 	}
-	openAIClient := openai.NewClient(apiKey)
+	openaiClient := openai.NewClient(apiKey)
 
 	// JWT secret の確認
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -37,7 +44,7 @@ func main() {
 	defer db.Close()
 
 	// サービスとハンドラーの初期化
-	chatService := services.NewChatService(db, openAIClient)
+	chatService := services.NewChatService(db, openaiClient)
 	chatHandler := handlers.NewChatHandler(chatService)
 
 	// ユーザー認証サービスとハンドラーの初期化
@@ -49,9 +56,6 @@ func main() {
 	serverHandler := handlers.NewServerHandler(serverService)
 	messageService := services.NewMessageService(db)
 	messageHandler := handlers.NewMessageHandler(messageService, serverService)
-
-	// リリースモードに設定
-	gin.SetMode(gin.ReleaseMode)
 
 	engine := gin.Default()
 
@@ -78,6 +82,9 @@ func main() {
 	engine.POST("/api/auth/register", authHandler.Register)
 	engine.POST("/api/auth/login", authHandler.Login)
 
+	// 静的ファイルを提供するルート
+	engine.Static("/uploads", "/app/uploads")
+
 	// 認証済みユーザー向けルート
 	authRoutes := engine.Group("/api")
 	authRoutes.Use(handlers.AuthMiddleware(userService))
@@ -102,6 +109,8 @@ func main() {
 		authRoutes.PUT("/messages/:messageId", messageHandler.EditMessage)
 		authRoutes.DELETE("/messages/:messageId", messageHandler.DeleteMessage)
 		authRoutes.GET("/attachments/:attachmentId", messageHandler.GetAttachment)
+		// ファイルアップロード用のエンドポイント
+		authRoutes.POST("/channels/:channelId/upload", messageHandler.UploadFile)
 	}
 
 	// サーバーの設定
