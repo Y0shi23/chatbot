@@ -11,6 +11,24 @@ type Message struct {
 	Content   string    `json:"content"`
 	Role      string    `json:"role"`
 	Timestamp time.Time `json:"timestamp"`
+	// 新しいフィールド
+	ChannelId   string    `json:"channelId,omitempty"`
+	UserId      string    `json:"userId,omitempty"`
+	Attachments []string  `json:"attachments,omitempty"` // 添付ファイルのパス
+	IsEdited    bool      `json:"isEdited"`
+	IsDeleted   bool      `json:"isDeleted"`
+	EditedAt    time.Time `json:"editedAt,omitempty"`
+}
+
+// Attachment represents a file attachment
+type Attachment struct {
+	ID         string    `json:"id"`
+	MessageId  string    `json:"messageId"`
+	FileName   string    `json:"fileName"`
+	FileType   string    `json:"fileType"` // "image", "video", "document", etc.
+	FilePath   string    `json:"filePath"`
+	FileSize   int64     `json:"fileSize"`
+	UploadedAt time.Time `json:"uploadedAt"`
 }
 
 // チャットの構造体
@@ -33,4 +51,15 @@ type ChatSummary struct {
 	LastMessageAt time.Time `json:"lastMessageAt"`
 	MessageCount  int       `json:"messageCount"`
 	FirstMessage  string    `json:"firstMessage"`
+}
+
+// MessageRequest represents a request to create or edit a message
+type MessageRequest struct {
+	Content     string   `json:"content"`
+	Attachments []string `json:"attachments,omitempty"`
+}
+
+// EditMessageRequest represents a request to edit a message
+type EditMessageRequest struct {
+	Content string `json:"content" binding:"required"`
 }

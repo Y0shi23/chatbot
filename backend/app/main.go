@@ -44,6 +44,12 @@ func main() {
 	userService := services.NewUserService(db)
 	authHandler := handlers.NewAuthHandler(userService)
 
+	// サーバーとメッセージのサービスとハンドラーの初期化
+	serverService := services.NewServerService(db)
+	serverHandler := handlers.NewServerHandler(serverService)
+	messageService := services.NewMessageService(db)
+	messageHandler := handlers.NewMessageHandler(messageService, serverService)
+
 	// リリースモードに設定
 	gin.SetMode(gin.ReleaseMode)
 
@@ -81,6 +87,21 @@ func main() {
 		authRoutes.GET("/chat/history", chatHandler.GetChatHistory)
 		authRoutes.GET("/chat/:id", chatHandler.GetChat)
 		authRoutes.POST("/chat/:id", chatHandler.AddMessage)
+
+		// サーバー関連のルート
+		authRoutes.POST("/servers", serverHandler.CreateServer)
+		authRoutes.GET("/servers", serverHandler.GetUserServers)
+		authRoutes.GET("/servers/:serverId/channels", serverHandler.GetServerChannels)
+		authRoutes.POST("/servers/:serverId/channels", serverHandler.CreateChannel)
+		authRoutes.POST("/servers/:serverId/join", serverHandler.JoinServer)
+		authRoutes.POST("/channels/:channelId/members", serverHandler.AddChannelMember)
+
+		// メッセージ関連のルート
+		authRoutes.GET("/channels/:channelId/messages", messageHandler.GetChannelMessages)
+		authRoutes.POST("/channels/:channelId/messages", messageHandler.SendChannelMessage)
+		authRoutes.PUT("/messages/:messageId", messageHandler.EditMessage)
+		authRoutes.DELETE("/messages/:messageId", messageHandler.DeleteMessage)
+		authRoutes.GET("/attachments/:attachmentId", messageHandler.GetAttachment)
 	}
 
 	// サーバーの設定

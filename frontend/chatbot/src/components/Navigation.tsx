@@ -18,12 +18,16 @@ export default function Navigation() {
 
   // チャット関連のページかどうかを判定
   const isChatPage = pathname.startsWith('/chat');
+  // サーバー/チャンネル関連のページかどうかを判定
+  const isServerPage = pathname.startsWith('/channels');
+  // サイドバーを表示するページかどうか
+  const showSidebar = isChatPage || isServerPage;
   
   return (
     <nav className="bg-gray-800 text-white h-16 fixed top-0 w-full z-50">
       <div className="h-full px-4 flex justify-between items-center">
         <div className="flex items-center">
-          {isChatPage && (
+          {showSidebar && (
             <button
               onClick={toggleSidebar}
               className="mr-3 md:hidden"
@@ -52,6 +56,22 @@ export default function Navigation() {
         <div className="flex items-center gap-4">          
           {isAuthenticated ? (
             <div className="flex items-center gap-4">
+              <Link 
+                href="/chat" 
+                className={`px-3 py-1 rounded text-white text-sm ${
+                  isChatPage ? 'bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                チャット
+              </Link>
+              <Link 
+                href="/channels" 
+                className={`px-3 py-1 rounded text-white text-sm ${
+                  isServerPage ? 'bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                サーバー
+              </Link>
               <span className="text-sm text-gray-300 hidden sm:inline">
                 こんにちは、{user?.username}さん
               </span>

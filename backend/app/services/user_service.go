@@ -159,7 +159,7 @@ func (s *UserService) ValidateToken(tokenString string) (string, error) {
 
 	// Validate the token
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		userID, ok := claims["user_id"].(string)
+		userID, ok := claims["userID"].(string)
 		if !ok {
 			return "", errors.New("invalid token claims")
 		}
@@ -178,8 +178,8 @@ func (s *UserService) generateToken(userID string) (string, error) {
 
 	// Create token claims
 	claims := jwt.MapClaims{
-		"user_id": userID,
-		"exp":     time.Now().Add(time.Hour * 24 * 7).Unix(), // Token valid for 7 days
+		"userID": userID,
+		"exp":    time.Now().Add(time.Hour * 24 * 7).Unix(), // Token valid for 7 days
 	}
 
 	// Create token

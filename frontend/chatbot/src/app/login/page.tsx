@@ -18,12 +18,26 @@ export default function LoginPage() {
     setError('');
     setIsLoading(true);
 
+    // 入力検証
+    if (!email || !password) {
+      setError('メールアドレスとパスワードを入力してください');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       await login(email, password);
-      router.push('/chat');
+      
+      console.log('ログイン成功、リダイレクト待機中...');
+      // リダイレクトはAuthContextで処理されるため、ここでは何もしない
+      
+      // ログイン成功メッセージを表示
+      setError('');
+      // ボタンのテキストを変更
+      setIsLoading(false);
     } catch (err) {
+      console.error('ログインエラー:', err);
       setError(err instanceof Error ? err.message : 'ログインに失敗しました');
-    } finally {
       setIsLoading(false);
     }
   };
