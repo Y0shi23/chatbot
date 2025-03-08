@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSidebar } from '@/context/SidebarContext';
+import { useAuth } from '@/context/AuthContext';
 
 // SVGアイコンコンポーネント
 const PlusIcon = () => (
@@ -56,9 +57,14 @@ export default function ServerSidebar() {
   const [showNewServerModal, setShowNewServerModal] = useState(false);
   const [showNewChannelModal, setShowNewChannelModal] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [currentServerData, setCurrentServerData] = useState<Server | null>(null);
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const router = useRouter();
   const { isSidebarOpen, closeSidebar } = useSidebar();
+  const { user } = useAuth();
 
   // Extract current channel ID from path if available
   const pathParts = pathname.split('/');
@@ -79,8 +85,11 @@ export default function ServerSidebar() {
   useEffect(() => {
     if (selectedServer) {
       fetchChannels(selectedServer);
+      // Find the current server data
+      const serverData = servers.find(server => server.id === selectedServer) || null;
+      setCurrentServerData(serverData);
     }
-  }, [selectedServer]);
+  }, [selectedServer, servers]);
 
   const fetchServers = async () => {
     try {
@@ -292,6 +301,51 @@ export default function ServerSidebar() {
     }
   };
 
+  // Check if current user is the server owner
+  const isServerOwner = user && currentServerData && user.id === currentServerData.ownerId;
+
+  // Handle right click on sidebar
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    // Only show context menu if a server is selected
+    if (selectedServer) {
+      // Adjust position to ensure menu stays within viewport
+      const x = Math.min(e.clientX, window.innerWidth - 192); // 192px is menu width (48*4)
+      const y = Math.min(e.clientY, window.innerHeight - 120); // Approximate menu height
+      
+      setContextMenuPosition({ x, y });
+      setShowContextMenu(true);
+    }
+  };
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setShowContextMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Handle invite friend
+  const handleInviteFriend = () => {
+    // Implement invite functionality here
+    alert('友達を招待する機能は開発中です');
+    setShowContextMenu(false);
+  };
+
+  // Handle create category
+  const handleCreateCategory = () => {
+    // Implement category creation here
+    alert('カテゴリー作成機能は開発中です');
+    setShowContextMenu(false);
+  };
+
   return (
     <>
       <div 
@@ -301,6 +355,7 @@ export default function ServerSidebar() {
           ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full md:translate-x-0'}
           md:w-64
         `}
+        onContextMenu={handleContextMenu}
       >
         <div className="p-4">
           <div className="flex justify-between items-center mb-4">
@@ -345,13 +400,15 @@ export default function ServerSidebar() {
           <div className="mt-4 border-t border-gray-700 pt-4 px-4">
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-medium">チャンネル</h3>
-              <button 
-                onClick={() => setShowNewChannelModal(true)}
-                className="p-1 rounded-full hover:bg-gray-700"
-                title="新しいチャンネルを作成"
-              >
-                <PlusIcon />
-              </button>
+              {isServerOwner && (
+                <button 
+                  onClick={() => setShowNewChannelModal(true)}
+                  className="p-1 rounded-full hover:bg-gray-700"
+                  title="新しいチャンネルを作成"
+                >
+                  <PlusIcon />
+                </button>
+              )}
             </div>
             <div className="space-y-1">
               {channels.map((channel) => (
@@ -545,6 +602,50 @@ export default function ServerSidebar() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Context Menu */}
+      {showContextMenu && (
+        <div 
+          ref={contextMenuRef}
+          className="fixed bg-gray-800 border border-gray-700 rounded shadow-lg z-50 w-48"
+          style={{ 
+            top: `${contextMenuPosition.y}px`, 
+            left: `${contextMenuPosition.x}px` 
+          }}
+        >
+          <ul className="py-1">
+            {isServerOwner && (
+              <li>
+                <button 
+                  className="w-full text-left px-4 py-2 hover:bg-gray-700 text-white"
+                  onClick={() => {
+                    setShowNewChannelModal(true);
+                    setShowContextMenu(false);
+                  }}
+                >
+                  チャンネルを作成
+                </button>
+              </li>
+            )}
+            <li>
+              <button 
+                className="w-full text-left px-4 py-2 hover:bg-gray-700 text-white"
+                onClick={handleCreateCategory}
+              >
+                カテゴリーを作成
+              </button>
+            </li>
+            <li>
+              <button 
+                className="w-full text-left px-4 py-2 hover:bg-gray-700 text-white"
+                onClick={handleInviteFriend}
+              >
+                友達を招待
+              </button>
+            </li>
+          </ul>
         </div>
       )}
     </>

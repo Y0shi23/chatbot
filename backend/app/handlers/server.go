@@ -172,7 +172,7 @@ func (h *ServerHandler) CreateChannel(c *gin.Context) {
 		return
 	}
 
-	// Check if user has permission to create channels (owner or admin)
+	// Check if user has permission to create channels (owner only)
 	hasPermission, err := h.serverService.HasChannelManagementPermission(serverId, userId.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "権限の確認に失敗しました"})
@@ -180,7 +180,7 @@ func (h *ServerHandler) CreateChannel(c *gin.Context) {
 	}
 
 	if !hasPermission {
-		c.JSON(http.StatusForbidden, gin.H{"error": "チャンネルを作成する権限がありません"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "チャンネルを作成できるのはサーバーの作成者のみです"})
 		return
 	}
 

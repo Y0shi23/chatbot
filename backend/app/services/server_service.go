@@ -138,7 +138,7 @@ func (s *ServerService) HasChannelManagementPermission(serverId, userId string) 
 		}
 		return false, err
 	}
-	return role == "owner" || role == "admin", nil
+	return role == "owner", nil
 }
 
 // IsChannelPrivate checks if a channel is private
