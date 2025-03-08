@@ -2,14 +2,18 @@
 const nextConfig = {
   output: 'standalone',
   experimental: {
-    appDir: true,
+    // appDirは最新のNext.jsでは不要
   },
-  webpackDevMiddleware: config => {
-    config.watchOptions = {
-      poll: 1000,
-      aggregateTimeout: 300,
+  // 開発サーバーの設定
+  webpack: (config, { isServer, dev }) => {
+    if (dev && !isServer) {
+      // クライアント側の開発時の設定
+      config.watchOptions = {
+        poll: 1000,
+        aggregateTimeout: 300,
+      };
     }
-    return config
+    return config;
   },
 }
 

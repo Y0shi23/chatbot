@@ -5,6 +5,19 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSidebar } from '@/context/SidebarContext';
 import { useAuth } from '@/context/AuthContext';
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+} from '@dnd-kit/core';
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 
 // SVGアイコンコンポーネント
 const PlusIcon = () => (
@@ -31,6 +44,19 @@ const UserPlusIcon = () => (
   </svg>
 );
 
+// Add new icon components for expand/collapse
+const ChevronDownIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+  </svg>
+);
+
+const ChevronRightIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+  </svg>
+);
+
 interface Server {
   id: string;
   name: string;
@@ -40,23 +66,259 @@ interface Server {
   memberCount: number;
 }
 
+interface Category {
+  id: string;
+  serverId: string;
+  name: string;
+  position: number;
+  createdAt: string;
+}
+
 interface Channel {
   id: string;
   serverId: string;
+  categoryId: string;
   name: string;
   description: string;
   isPrivate: boolean;
   createdAt: string;
 }
 
+// Draggable Channel component
+const DraggableChannel = ({ 
+  channel, 
+  isActive, 
+  isCurrentChannel, 
+  onAddMember 
+}: { 
+  channel: Channel; 
+  isActive: boolean; 
+  isCurrentChannel: boolean | null;
+  onAddMember: (channelId: string) => void;
+}) => {
+  const router = useRouter();
+  const [isDragActive, setIsDragActive] = useState(false);
+  
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: channel.id,
+    data: {
+      type: 'channel',
+      channel,
+    }
+  });
+  
+  const style = transform ? {
+    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+    opacity: isDragging ? 0 : 1,
+  } : undefined;
+
+  // Handle channel click without triggering drag
+  const handleChannelClick = (e: React.MouseEvent) => {
+    // Prevent the drag listeners from capturing this event
+    e.stopPropagation();
+    
+    // Only navigate if not currently dragging
+    if (!isDragging) {
+      router.push(`/channels/${channel.id}`);
+    }
+  };
+
+  // Handle mouse down to change cursor style
+  const handleMouseDown = () => {
+    // Set a timeout to change cursor after a delay (for long press)
+    const timer = setTimeout(() => {
+      setIsDragActive(true);
+    }, 200);
+    
+    // Clear the timeout on mouse up
+    const handleMouseUp = () => {
+      clearTimeout(timer);
+      setIsDragActive(false);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center px-3 py-1 rounded ${
+        isDragActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+      } ${
+        isCurrentChannel === true ? 'bg-gray-700' : 'hover:bg-gray-700'
+      } ${isActive ? 'opacity-50' : ''}`}
+      onMouseDown={handleMouseDown}
+      {...attributes}
+      {...listeners}
+    >
+      <div
+        className="flex items-center flex-grow"
+        onClick={handleChannelClick}
+      >
+        {channel.isPrivate ? (
+          <LockIcon />
+        ) : (
+          <HashtagIcon />
+        )}
+        <span className="ml-2 truncate">{channel.name}</span>
+      </div>
+      
+      {channel.isPrivate && (
+        <button 
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onAddMember(channel.id);
+          }}
+          className="ml-auto p-1 rounded-full hover:bg-gray-600"
+          title="メンバーを追加"
+        >
+          <UserPlusIcon />
+        </button>
+      )}
+    </div>
+  );
+};
+
+// Droppable Category component
+const DroppableCategory = ({ 
+  category, 
+  channels, 
+  isOwner,
+  currentChannelId,
+  activeChannelId,
+  onAddChannel,
+  onAddMember
+}: { 
+  category: Category; 
+  channels: Channel[];
+  isOwner: boolean;
+  currentChannelId: string | null;
+  activeChannelId: string | null;
+  onAddChannel: () => void;
+  onAddMember: (channelId: string) => void;
+}) => {
+  const { setNodeRef } = useDroppable({
+    id: category.id,
+  });
+  
+  // State to track if category is expanded or collapsed
+  const [isExpanded, setIsExpanded] = useState(true);
+  
+  // Toggle expanded/collapsed state
+  const toggleExpanded = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsExpanded(!isExpanded);
+  };
+
+  return (
+    <div 
+      ref={setNodeRef}
+      className="mb-4 border border-transparent hover:border-gray-700 rounded p-1"
+    >
+      <div className="flex justify-between items-center mb-2">
+        <div className="flex items-center cursor-pointer" onClick={toggleExpanded}>
+          <button className="mr-1 text-gray-400 hover:text-white">
+            {isExpanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
+          </button>
+          <h3 className="font-medium text-gray-400 uppercase text-xs">{category.name}</h3>
+        </div>
+        {isOwner && (
+          <button 
+            onClick={onAddChannel}
+            className="p-1 rounded-full hover:bg-gray-700"
+            title={`${category.name}にチャンネルを追加`}
+          >
+            <PlusIcon />
+          </button>
+        )}
+      </div>
+      {isExpanded && (
+        <div className="space-y-1">
+          {channels.map((channel) => (
+            <DraggableChannel
+              key={channel.id}
+              channel={channel}
+              isActive={activeChannelId === channel.id}
+              isCurrentChannel={currentChannelId === channel.id}
+              onAddMember={onAddMember}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Droppable Uncategorized section
+const DroppableUncategorized = ({ 
+  channels, 
+  currentChannelId,
+  activeChannelId,
+  onAddMember
+}: { 
+  channels: Channel[];
+  currentChannelId: string | null;
+  activeChannelId: string | null;
+  onAddMember: (channelId: string) => void;
+}) => {
+  const { setNodeRef } = useDroppable({
+    id: 'uncategorized',
+  });
+  
+  // State to track if uncategorized section is expanded or collapsed
+  const [isExpanded, setIsExpanded] = useState(true);
+  
+  // Toggle expanded/collapsed state
+  const toggleExpanded = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsExpanded(!isExpanded);
+  };
+
+  return (
+    <div 
+      ref={setNodeRef}
+      className="mt-4 border border-transparent hover:border-gray-700 rounded p-1"
+    >
+      <div className="flex justify-between items-center mb-2">
+        <div className="flex items-center cursor-pointer" onClick={toggleExpanded}>
+          <button className="mr-1 text-gray-400 hover:text-white">
+            {isExpanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
+          </button>
+          <h3 className="font-medium text-gray-400 uppercase text-xs">未分類</h3>
+        </div>
+      </div>
+      {isExpanded && (
+        <div className="space-y-1">
+          {channels.map((channel) => (
+            <DraggableChannel
+              key={channel.id}
+              channel={channel}
+              isActive={activeChannelId === channel.id}
+              isCurrentChannel={currentChannelId === channel.id}
+              onAddMember={onAddMember}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function ServerSidebar() {
   const [servers, setServers] = useState<Server[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showNewServerModal, setShowNewServerModal] = useState(false);
   const [showNewChannelModal, setShowNewChannelModal] = useState(false);
+  const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [selectedCategoryForChannel, setSelectedCategoryForChannel] = useState<string | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [currentServerData, setCurrentServerData] = useState<Server | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
@@ -65,10 +327,33 @@ export default function ServerSidebar() {
   const router = useRouter();
   const { isSidebarOpen, closeSidebar } = useSidebar();
   const { user } = useAuth();
+  const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Extract current channel ID from path if available
-  const pathParts = pathname.split('/');
+  const pathParts = pathname ? pathname.split('/') : [];
   const currentChannelId = pathParts[pathParts.length - 1];
+
+  // Configure DnD sensors with stricter activation constraints
+  const mouseSensor = useSensor(MouseSensor, {
+    // Require the mouse to move by 10 pixels before activating
+    activationConstraint: {
+      distance: 10, // Increased from 3 to 10
+      delay: 250,   // Add a delay of 250ms before drag can start
+      tolerance: 5, // Allow some movement during the delay
+    },
+  });
+  
+  const touchSensor = useSensor(TouchSensor, {
+    // Require the touch to move by 10 pixels before activating
+    activationConstraint: {
+      distance: 10,
+      delay: 250,
+      tolerance: 5,
+    },
+  });
+  
+  const sensors = useSensors(mouseSensor, touchSensor);
 
   useEffect(() => {
     // トークンの存在を確認
@@ -85,6 +370,7 @@ export default function ServerSidebar() {
   useEffect(() => {
     if (selectedServer) {
       fetchChannels(selectedServer);
+      fetchCategories(selectedServer);
       // Find the current server data
       const serverData = servers.find(server => server.id === selectedServer) || null;
       setCurrentServerData(serverData);
@@ -160,7 +446,7 @@ export default function ServerSidebar() {
       // チャンネルが取得できた場合の処理
       if (data.channels && data.channels.length > 0) {
         // 現在のパスがチャンネルを指していない場合は、最初のチャンネルに移動
-        const currentPath = pathname;
+        const currentPath = pathname || '';
         const isInChannel = currentPath.includes('/channels/') && 
                            data.channels.some((channel: Channel) => currentPath.includes(channel.id));
         
@@ -170,6 +456,32 @@ export default function ServerSidebar() {
       }
     } catch (error) {
       console.error('Error fetching channels:', error);
+    }
+  };
+
+  const fetchCategories = async (serverId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('認証トークンがありません');
+        return;
+      }
+
+      const response = await fetch(`http://localhost:3000/api/servers/${serverId}/categories`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('カテゴリーの取得に失敗しました');
+      }
+
+      const data = await response.json();
+      setCategories(data.categories || []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      setCategories([]);
     }
   };
 
@@ -223,21 +535,30 @@ export default function ServerSidebar() {
     }
   };
 
-  const createChannel = async (name: string, description: string, isPrivate: boolean) => {
+  const createChannel = async (name: string, description: string, isPrivate: boolean, categoryId: string = '') => {
     if (!selectedServer) return;
     
     try {
       const token = localStorage.getItem('token');
+      console.log('Creating channel with:', { name, description, isPrivate, categoryId });
+      
       const response = await fetch(`http://localhost:3000/api/servers/${selectedServer}/channels`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ name, description, isPrivate }),
+        body: JSON.stringify({ 
+          name, 
+          description, 
+          isPrivate, 
+          categoryId: categoryId && categoryId !== 'uncategorized' ? categoryId : '' 
+        }),
       });
 
       if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Server error:', errorData);
         throw new Error('チャンネルの作成に失敗しました');
       }
 
@@ -245,6 +566,55 @@ export default function ServerSidebar() {
       fetchChannels(selectedServer);
     } catch (error) {
       console.error('Error creating channel:', error);
+    }
+  };
+
+  const createCategory = async (name: string) => {
+    if (!selectedServer) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3000/api/servers/${selectedServer}/categories`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      if (!response.ok) {
+        throw new Error('カテゴリーの作成に失敗しました');
+      }
+
+      setShowNewCategoryModal(false);
+      fetchCategories(selectedServer);
+    } catch (error) {
+      console.error('Error creating category:', error);
+    }
+  };
+
+  const updateChannelCategory = async (channelId: string, categoryId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3000/api/channels/${channelId}/category`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ categoryId }),
+      });
+
+      if (!response.ok) {
+        throw new Error('チャンネルのカテゴリー更新に失敗しました');
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error updating channel category:', error);
+      throw error; // Re-throw the error so the caller can handle it
     }
   };
 
@@ -302,7 +672,7 @@ export default function ServerSidebar() {
   };
 
   // Check if current user is the server owner
-  const isServerOwner = user && currentServerData && user.id === currentServerData.ownerId;
+  const isServerOwner = user && currentServerData && user.id === currentServerData.ownerId ? true : false;
 
   // Handle right click on sidebar
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -341,9 +711,137 @@ export default function ServerSidebar() {
 
   // Handle create category
   const handleCreateCategory = () => {
-    // Implement category creation here
-    alert('カテゴリー作成機能は開発中です');
+    setShowNewCategoryModal(true);
     setShowContextMenu(false);
+  };
+
+  // Group channels by category
+  const channelsByCategory = channels.reduce((acc, channel) => {
+    // Use 'uncategorized' for channels without a category
+    const categoryId = channel.categoryId || 'uncategorized';
+    if (!acc[categoryId]) {
+      acc[categoryId] = [];
+    }
+    acc[categoryId].push(channel);
+    return acc;
+  }, {} as Record<string, Channel[]>);
+
+  // Handle drag start
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const channelId = active.id as string;
+    const draggedChannel = channels.find(channel => channel.id === channelId) || null;
+    
+    // Store the initial cursor position for better positioning
+    setActiveChannel(draggedChannel);
+    setIsDragging(true);
+  };
+  
+  // Handle drag end
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setIsDragging(false);
+    setActiveChannel(null);
+    
+    if (!over) return;
+    
+    const channelId = active.id as string;
+    const categoryId = over.id as string;
+    
+    // Don't do anything if dropped in the same category
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel || channel.categoryId === categoryId) return;
+    
+    try {
+      // Optimistically update the UI first
+      const updatedChannels = channels.map(c => 
+        c.id === channelId 
+          ? { ...c, categoryId: categoryId } 
+          : c
+      );
+      setChannels(updatedChannels);
+      
+      // Then update the server
+      await updateChannelCategory(channelId, categoryId);
+      
+      // No need to fetch all channels again, we've already updated the state
+      console.log(`チャンネル "${channel.name}" を新しいカテゴリーに移動しました`);
+    } catch (error) {
+      console.error('Error updating channel category:', error);
+      // Revert the optimistic update if the server request fails
+      fetchChannels(selectedServer!);
+    }
+  };
+
+  // Improved collision detection function that finds the closest droppable container
+  const simpleCollisionDetection = ({ 
+    droppableContainers, 
+    active,
+    pointerCoordinates
+  }: { 
+    droppableContainers: Array<{ 
+      id: string | number;
+      rect: { 
+        current: { 
+          top: number;
+          left: number;
+          bottom: number;
+          right: number;
+          width: number;
+          height: number;
+        } | null 
+      };
+    }>;
+    active: { id: string | number };
+    pointerCoordinates: { x: number; y: number } | null;
+  }) => {
+    // If there are no droppable containers or no pointer coordinates, return null
+    if (!droppableContainers.length || !pointerCoordinates) return null;
+    
+    // Find containers that the pointer is within
+    const containersUnderPointer = droppableContainers.filter(container => {
+      const rect = container.rect.current;
+      if (!rect) return false;
+      
+      return (
+        pointerCoordinates.x >= rect.left &&
+        pointerCoordinates.x <= rect.right &&
+        pointerCoordinates.y >= rect.top &&
+        pointerCoordinates.y <= rect.bottom
+      );
+    });
+    
+    // If the pointer is within any containers, return the first one
+    if (containersUnderPointer.length > 0) {
+      return containersUnderPointer[0].id;
+    }
+    
+    // If the pointer is not within any container, find the closest one
+    let closestContainer = null;
+    let minDistance = Infinity;
+    
+    droppableContainers.forEach(container => {
+      const rect = container.rect.current;
+      if (!rect) return;
+      
+      // Calculate the center of the container
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      // Calculate the distance from the pointer to the center of the container
+      const distance = Math.sqrt(
+        Math.pow(pointerCoordinates.x - centerX, 2) + 
+        Math.pow(pointerCoordinates.y - centerY, 2)
+      );
+      
+      // Update the closest container if this one is closer
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestContainer = container.id;
+      }
+    });
+    
+    return closestContainer;
   };
 
   return (
@@ -397,53 +895,102 @@ export default function ServerSidebar() {
         </div>
 
         {selectedServer && (
-          <div className="mt-4 border-t border-gray-700 pt-4 px-4">
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="font-medium">チャンネル</h3>
-              {isServerOwner && (
-                <button 
-                  onClick={() => setShowNewChannelModal(true)}
-                  className="p-1 rounded-full hover:bg-gray-700"
-                  title="新しいチャンネルを作成"
-                >
-                  <PlusIcon />
-                </button>
+          <DndContext
+            sensors={sensors}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            modifiers={[restrictToVerticalAxis]}
+            autoScroll={{
+              enabled: true,
+              speed: 5,
+              threshold: {
+                x: 0,
+                y: 0.1,
+              },
+            }}
+            measuring={{
+              droppable: {
+                strategy: 'always',
+              },
+            }}
+            collisionDetection={simpleCollisionDetection}
+          >
+            <div className="mt-4 border-t border-gray-700 pt-4 px-4">
+              {/* Categories and Channels */}
+              {categories.length > 0 ? (
+                categories.map(category => (
+                  <DroppableCategory
+                    key={category.id}
+                    category={category}
+                    channels={channelsByCategory[category.id] || []}
+                    isOwner={isServerOwner}
+                    currentChannelId={currentChannelId}
+                    activeChannelId={activeChannel?.id || null}
+                    onAddChannel={() => {
+                      setSelectedCategoryForChannel(category.id);
+                      setShowNewChannelModal(true);
+                    }}
+                    onAddMember={(channelId) => {
+                      setSelectedChannelId(channelId);
+                      setShowAddMemberModal(true);
+                    }}
+                  />
+                ))
+              ) : (
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-medium">チャンネル</h3>
+                  {isServerOwner && (
+                    <button 
+                      onClick={() => setShowNewChannelModal(true)}
+                      className="p-1 rounded-full hover:bg-gray-700"
+                      title="新しいチャンネルを作成"
+                    >
+                      <PlusIcon />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Uncategorized channels */}
+              {channelsByCategory['uncategorized']?.length > 0 && (
+                <DroppableUncategorized
+                  channels={channelsByCategory['uncategorized']}
+                  currentChannelId={currentChannelId}
+                  activeChannelId={activeChannel?.id || null}
+                  onAddMember={(channelId) => {
+                    setSelectedChannelId(channelId);
+                    setShowAddMemberModal(true);
+                  }}
+                />
               )}
             </div>
-            <div className="space-y-1">
-              {channels.map((channel) => (
-                <Link
-                  key={channel.id}
-                  href={`/channels/${channel.id}`}
-                  className={`flex items-center px-3 py-1 rounded ${
-                    channel.id === currentChannelId ? 'bg-gray-700' : 'hover:bg-gray-700'
-                  }`}
-                  onClick={handleLinkClick}
-                >
-                  {channel.isPrivate ? (
+            
+            {/* Drag overlay */}
+            <DragOverlay 
+              dropAnimation={{
+                duration: 200,
+                easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
+              }}
+              modifiers={[
+                ({ transform }) => ({
+                  ...transform,
+                  x: transform.x,
+                  y: transform.y - 15,
+                })
+              ]}
+            >
+              {activeChannel && (
+                <div className="flex items-center px-3 py-1 rounded bg-gray-700 opacity-90 w-56 shadow-lg border border-gray-600">
+                  {activeChannel.isPrivate ? (
                     <LockIcon />
                   ) : (
                     <HashtagIcon />
                   )}
-                  <span className="ml-2 truncate">{channel.name}</span>
-                  
-                  {channel.isPrivate && (
-                    <button 
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setShowAddMemberModal(true);
-                      }}
-                      className="ml-auto p-1 rounded-full hover:bg-gray-600"
-                      title="メンバーを追加"
-                    >
-                      <UserPlusIcon />
-                    </button>
-                  )}
-                </Link>
-              ))}
-            </div>
-          </div>
+                  <span className="ml-2 truncate">{activeChannel.name}</span>
+                </div>
+              )}
+            </DragOverlay>
+          </DndContext>
         )}
       </div>
       
@@ -515,7 +1062,14 @@ export default function ServerSidebar() {
               const name = (form.elements.namedItem('name') as HTMLInputElement).value;
               const description = (form.elements.namedItem('description') as HTMLTextAreaElement).value;
               const isPrivate = (form.elements.namedItem('isPrivate') as HTMLInputElement).checked;
-              createChannel(name, description, isPrivate);
+              const categoryId = (form.elements.namedItem('categoryId') as HTMLSelectElement).value;
+              
+              // Log values for debugging
+              console.log('Creating channel with:', { name, description, isPrivate, categoryId });
+              
+              // Only pass categoryId if it's not 'uncategorized'
+              const finalCategoryId = categoryId !== 'uncategorized' ? categoryId : '';
+              createChannel(name, description, isPrivate, finalCategoryId);
             }}>
               <div className="mb-4">
                 <label className="block text-gray-300 mb-2">チャンネル名</label>
@@ -535,6 +1089,21 @@ export default function ServerSidebar() {
                 />
               </div>
               <div className="mb-4">
+                <label className="block text-gray-300 mb-2">カテゴリー</label>
+                <select 
+                  name="categoryId" 
+                  className="w-full p-2 bg-gray-700 rounded text-white"
+                  defaultValue={selectedCategoryForChannel || 'uncategorized'}
+                >
+                  <option value="uncategorized">未分類</option>
+                  {categories.map(category => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="mb-4">
                 <label className="flex items-center text-gray-300">
                   <input 
                     type="checkbox" 
@@ -548,7 +1117,10 @@ export default function ServerSidebar() {
                 <button 
                   type="button" 
                   className="px-4 py-2 bg-gray-700 text-white rounded"
-                  onClick={() => setShowNewChannelModal(false)}
+                  onClick={() => {
+                    setShowNewChannelModal(false);
+                    setSelectedCategoryForChannel(null);
+                  }}
                 >
                   キャンセル
                 </button>
@@ -621,6 +1193,7 @@ export default function ServerSidebar() {
                 <button 
                   className="w-full text-left px-4 py-2 hover:bg-gray-700 text-white"
                   onClick={() => {
+                    setSelectedCategoryForChannel(null);
                     setShowNewChannelModal(true);
                     setShowContextMenu(false);
                   }}
@@ -629,14 +1202,16 @@ export default function ServerSidebar() {
                 </button>
               </li>
             )}
-            <li>
-              <button 
-                className="w-full text-left px-4 py-2 hover:bg-gray-700 text-white"
-                onClick={handleCreateCategory}
-              >
-                カテゴリーを作成
-              </button>
-            </li>
+            {isServerOwner && (
+              <li>
+                <button 
+                  className="w-full text-left px-4 py-2 hover:bg-gray-700 text-white"
+                  onClick={handleCreateCategory}
+                >
+                  カテゴリーを作成
+                </button>
+              </li>
+            )}
             <li>
               <button 
                 className="w-full text-left px-4 py-2 hover:bg-gray-700 text-white"
@@ -646,6 +1221,46 @@ export default function ServerSidebar() {
               </button>
             </li>
           </ul>
+        </div>
+      )}
+
+      {/* New Category Modal */}
+      {showNewCategoryModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4 text-white">新しいカテゴリーを作成</h2>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const form = e.target as HTMLFormElement;
+              const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+              createCategory(name);
+            }}>
+              <div className="mb-4">
+                <label className="block text-gray-300 mb-2">カテゴリー名</label>
+                <input 
+                  type="text" 
+                  name="name" 
+                  className="w-full p-2 bg-gray-700 rounded text-white" 
+                  required 
+                />
+              </div>
+              <div className="flex justify-end space-x-2">
+                <button 
+                  type="button" 
+                  className="px-4 py-2 bg-gray-700 text-white rounded"
+                  onClick={() => setShowNewCategoryModal(false)}
+                >
+                  キャンセル
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 bg-blue-600 text-white rounded"
+                >
+                  作成
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </>

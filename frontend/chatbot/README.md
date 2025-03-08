@@ -1,3 +1,85 @@
+# Chatbot Frontend
+
+## 環境構築
+
+### 必要なパッケージのインストール
+
+```bash
+npm install
+# または
+yarn install
+```
+
+### 環境変数の設定
+
+`.env.local`ファイルを作成し、以下の内容を設定します：
+
+```
+NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
+NEXT_PUBLIC_FRONTEND_URL=http://localhost:5173
+```
+
+## 開発サーバーの起動
+
+### カスタムサーバー（WebSocket対応）で起動
+
+```bash
+npm run dev
+# または
+yarn dev
+```
+
+### Next.jsの標準サーバーで起動（WebSocketなし）
+
+```bash
+npm run dev:next
+# または
+yarn dev:next
+```
+
+## ビルドと本番環境での実行
+
+### ビルド
+
+```bash
+npm run build
+# または
+yarn build
+```
+
+### 本番環境での実行
+
+```bash
+npm run start
+# または
+yarn start
+```
+
+## トラブルシューティング
+
+### ポートの競合
+
+フロントエンドは5173番ポート、バックエンドは3000番ポートを使用しています。
+ポートを変更する場合は、`.env.local`ファイルと`server.js`ファイルを修正してください。
+
+### WebSocketの接続エラー
+
+WebSocketの接続エラーが発生する場合は、以下を確認してください：
+
+1. バックエンドが起動しているか
+2. `.env.local`ファイルのバックエンドURLが正しいか
+3. CORSの設定が正しいか
+
+### 依存関係のエラー
+
+依存関係のエラーが発生する場合は、以下のコマンドを実行してください：
+
+```bash
+npm install --force
+# または
+yarn install --force
+```
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

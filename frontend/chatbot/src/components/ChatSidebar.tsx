@@ -17,7 +17,7 @@ export default function ChatSidebar() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pathname = usePathname();
-  const currentChatId = pathname.split('/').pop();
+  const currentChatId = pathname ? pathname.split('/').pop() : '';
   const { isSidebarOpen, closeSidebar } = useSidebar();
 
   useEffect(() => {

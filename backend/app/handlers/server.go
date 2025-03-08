@@ -184,9 +184,24 @@ func (h *ServerHandler) CreateChannel(c *gin.Context) {
 		return
 	}
 
+	// If categoryId is provided and not empty, verify it belongs to this server
+	if req.CategoryId != "" {
+		categoryServerId, err := h.serverService.GetServerIdByCategoryId(req.CategoryId)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "カテゴリー情報の取得に失敗しました"})
+			return
+		}
+
+		if categoryServerId != serverId {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "指定されたカテゴリーはこのサーバーに属していません"})
+			return
+		}
+	}
+
 	channel := models.Channel{
 		ID:          uuid.New().String(),
 		ServerId:    serverId,
+		CategoryId:  req.CategoryId,
 		Name:        req.Name,
 		Description: req.Description,
 		IsPrivate:   req.IsPrivate,
@@ -219,6 +234,7 @@ func (h *ServerHandler) CreateChannel(c *gin.Context) {
 		"channel": models.ChannelResponse{
 			ID:          channel.ID,
 			ServerId:    channel.ServerId,
+			CategoryId:  channel.CategoryId,
 			Name:        channel.Name,
 			Description: channel.Description,
 			IsPrivate:   channel.IsPrivate,
@@ -354,4 +370,166 @@ func (h *ServerHandler) JoinServer(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "サーバーに参加しました"})
+}
+
+// CreateCategory handles the creation of a new category in a server
+func (h *ServerHandler) CreateCategory(c *gin.Context) {
+	// Get server ID from URL parameter
+	serverId := c.Param("serverId")
+	if serverId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "サーバーIDが必要です"})
+		return
+	}
+
+	// Get user ID from context
+	userId, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+		return
+	}
+
+	var req models.CategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if user has permission to create categories (owner only)
+	hasPermission, err := h.serverService.HasChannelManagementPermission(serverId, userId.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "権限の確認に失敗しました"})
+		return
+	}
+
+	if !hasPermission {
+		c.JSON(http.StatusForbidden, gin.H{"error": "カテゴリーを作成できるのはサーバーの作成者のみです"})
+		return
+	}
+
+	// Get the highest position to place the new category at the end
+	categories, err := h.serverService.GetServerCategories(serverId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "カテゴリーの取得に失敗しました"})
+		return
+	}
+
+	position := 0
+	if len(categories) > 0 {
+		position = categories[len(categories)-1].Position + 1
+	}
+
+	category := models.Category{
+		ID:        uuid.New().String(),
+		ServerId:  serverId,
+		Name:      req.Name,
+		Position:  position,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := h.serverService.CreateCategory(category); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "カテゴリーの作成に失敗しました"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "カテゴリーが作成されました",
+		"category": models.CategoryResponse{
+			ID:        category.ID,
+			ServerId:  category.ServerId,
+			Name:      category.Name,
+			Position:  category.Position,
+			CreatedAt: category.CreatedAt,
+		},
+	})
+}
+
+// GetServerCategories returns all categories in a server
+func (h *ServerHandler) GetServerCategories(c *gin.Context) {
+	// Get server ID from URL parameter
+	serverId := c.Param("serverId")
+	if serverId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "サーバーIDが必要です"})
+		return
+	}
+
+	// Get user ID from context
+	userId, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+		return
+	}
+
+	// Check if user is a member of the server
+	isMember, err := h.serverService.IsServerMember(serverId, userId.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "サーバーメンバーの確認に失敗しました"})
+		return
+	}
+
+	if !isMember {
+		c.JSON(http.StatusForbidden, gin.H{"error": "このサーバーにアクセスする権限がありません"})
+		return
+	}
+
+	categories, err := h.serverService.GetServerCategories(serverId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "カテゴリーの取得に失敗しました"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"categories": categories})
+}
+
+// UpdateChannelCategory updates a channel's category
+func (h *ServerHandler) UpdateChannelCategory(c *gin.Context) {
+	// Get channel ID from URL parameter
+	channelId := c.Param("channelId")
+	if channelId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "チャンネルIDが必要です"})
+		return
+	}
+
+	// Get user ID from context
+	userId, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+		return
+	}
+
+	var req struct {
+		CategoryId string `json:"categoryId" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get server ID for the channel
+	serverId, err := h.serverService.GetServerIdByChannelId(channelId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "チャンネル情報の取得に失敗しました"})
+		return
+	}
+
+	// Check if user has permission to manage channels
+	hasPermission, err := h.serverService.HasChannelManagementPermission(serverId, userId.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "権限の確認に失敗しました"})
+		return
+	}
+
+	if !hasPermission {
+		c.JSON(http.StatusForbidden, gin.H{"error": "チャンネルを管理する権限がありません"})
+		return
+	}
+
+	// Update the channel's category
+	if err := h.serverService.UpdateChannelCategory(channelId, req.CategoryId); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "チャンネルの更新に失敗しました"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "チャンネルのカテゴリーが更新されました"})
 }

@@ -14,10 +14,21 @@ type Server struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+// Category represents a grouping of channels within a server
+type Category struct {
+	ID        string    `json:"id"`
+	ServerId  string    `json:"serverId"`
+	Name      string    `json:"name"`
+	Position  int       `json:"position"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 // Channel represents a channel within a server
 type Channel struct {
 	ID          string    `json:"id"`
 	ServerId    string    `json:"serverId"`
+	CategoryId  string    `json:"categoryId"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	IsPrivate   bool      `json:"isPrivate"`
@@ -54,6 +65,7 @@ type ChannelRequest struct {
 	Name        string `json:"name" binding:"required,min=3,max=50"`
 	Description string `json:"description" binding:"max=200"`
 	IsPrivate   bool   `json:"isPrivate"`
+	CategoryId  string `json:"categoryId"`
 }
 
 // ServerResponse represents the server data returned to clients
@@ -70,8 +82,23 @@ type ServerResponse struct {
 type ChannelResponse struct {
 	ID          string    `json:"id"`
 	ServerId    string    `json:"serverId"`
+	CategoryId  string    `json:"categoryId"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	IsPrivate   bool      `json:"isPrivate"`
 	CreatedAt   time.Time `json:"createdAt"`
+}
+
+// CategoryRequest represents the request to create a new category
+type CategoryRequest struct {
+	Name string `json:"name" binding:"required,min=1,max=50"`
+}
+
+// CategoryResponse represents the category data returned to clients
+type CategoryResponse struct {
+	ID        string    `json:"id"`
+	ServerId  string    `json:"serverId"`
+	Name      string    `json:"name"`
+	Position  int       `json:"position"`
+	CreatedAt time.Time `json:"createdAt"`
 }

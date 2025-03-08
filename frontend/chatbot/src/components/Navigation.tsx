@@ -16,10 +16,13 @@ export default function Navigation() {
     router.push('/');
   };
 
+  // パスがnullの場合は空文字列を使用
+  const path = pathname || '';
+  
   // チャット関連のページかどうかを判定
-  const isChatPage = pathname.startsWith('/chat');
+  const isChatPage = path.startsWith('/chat');
   // サーバー/チャンネル関連のページかどうかを判定
-  const isServerPage = pathname.startsWith('/channels');
+  const isServerPage = path.startsWith('/channels');
   // サイドバーを表示するページかどうか
   const showSidebar = isChatPage || isServerPage;
   
@@ -87,7 +90,7 @@ export default function Navigation() {
               <Link 
                 href="/login" 
                 className={`bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-white text-sm ${
-                  pathname === '/login' ? 'bg-blue-700' : ''
+                  path === '/login' ? 'bg-blue-700' : ''
                 }`}
               >
                 ログイン
@@ -95,7 +98,7 @@ export default function Navigation() {
               <Link 
                 href="/register" 
                 className={`bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-white text-sm ${
-                  pathname === '/register' ? 'bg-green-700' : ''
+                  path === '/register' ? 'bg-green-700' : ''
                 }`}
               >
                 新規登録

@@ -103,6 +103,11 @@ func main() {
 		authRoutes.POST("/servers/:serverId/join", serverHandler.JoinServer)
 		authRoutes.POST("/channels/:channelId/members", serverHandler.AddChannelMember)
 
+		// カテゴリー関連のルート
+		authRoutes.POST("/servers/:serverId/categories", serverHandler.CreateCategory)
+		authRoutes.GET("/servers/:serverId/categories", serverHandler.GetServerCategories)
+		authRoutes.POST("/channels/:channelId/category", serverHandler.UpdateChannelCategory)
+
 		// メッセージ関連のルート
 		authRoutes.GET("/channels/:channelId/messages", messageHandler.GetChannelMessages)
 		authRoutes.POST("/channels/:channelId/messages", messageHandler.SendChannelMessage)

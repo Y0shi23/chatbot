@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+	"time"
 
 	"app/models"
 )
@@ -29,11 +30,23 @@ func (s *ServerService) CreateServer(server models.Server) error {
 
 // CreateChannel creates a new channel in a server
 func (s *ServerService) CreateChannel(channel models.Channel) error {
-	_, err := s.db.Exec(
-		"INSERT INTO channels (id, server_id, name, description, is_private, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		channel.ID, channel.ServerId, channel.Name, channel.Description, channel.IsPrivate, channel.CreatedAt, channel.UpdatedAt,
-	)
-	return err
+	if channel.CategoryId == "" {
+		// If no category ID is provided, set it to NULL in the database
+		_, err := s.db.Exec(
+			"INSERT INTO channels (id, server_id, name, description, is_private, created_at, updated_at) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)",
+			channel.ID, channel.ServerId, channel.Name, channel.Description,
+			channel.IsPrivate, channel.CreatedAt, channel.UpdatedAt,
+		)
+		return err
+	} else {
+		// If category ID is provided, include it in the query
+		_, err := s.db.Exec(
+			"INSERT INTO channels (id, server_id, category_id, name, description, is_private, created_at, updated_at) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8)",
+			channel.ID, channel.ServerId, channel.CategoryId, channel.Name,
+			channel.Description, channel.IsPrivate, channel.CreatedAt, channel.UpdatedAt,
+		)
+		return err
+	}
 }
 
 // AddServerMember adds a user to a server
@@ -87,11 +100,11 @@ func (s *ServerService) GetUserServers(userId string) ([]models.ServerResponse, 
 // GetServerChannels returns all channels in a server that a user has access to
 func (s *ServerService) GetServerChannels(serverId, userId string) ([]models.ChannelResponse, error) {
 	rows, err := s.db.Query(`
-		SELECT c.id, c.server_id, c.name, c.description, c.is_private, c.created_at
+		SELECT c.id, c.server_id, c.category_id, c.name, c.description, c.is_private, c.created_at
 		FROM channels c
-		WHERE c.server_id = $1 AND (
+		WHERE c.server_id = $1::uuid AND (
 			c.is_private = false OR 
-			EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = $2)
+			EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = $2::uuid)
 		)
 		ORDER BY c.name ASC
 	`, serverId, userId)
@@ -103,12 +116,22 @@ func (s *ServerService) GetServerChannels(serverId, userId string) ([]models.Cha
 	var channels []models.ChannelResponse
 	for rows.Next() {
 		var channel models.ChannelResponse
+		var categoryId sql.NullString // Use NullString to handle NULL values
+
 		if err := rows.Scan(
-			&channel.ID, &channel.ServerId, &channel.Name, &channel.Description,
+			&channel.ID, &channel.ServerId, &categoryId, &channel.Name, &channel.Description,
 			&channel.IsPrivate, &channel.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
+
+		// Convert NullString to string
+		if categoryId.Valid {
+			channel.CategoryId = categoryId.String
+		} else {
+			channel.CategoryId = ""
+		}
+
 		channels = append(channels, channel)
 	}
 
@@ -201,4 +224,100 @@ func (s *ServerService) HasChannelAccess(channelId, userId string) (bool, error)
 		channelId, userId,
 	).Scan(&exists)
 	return exists, err
+}
+
+// CreateCategory creates a new category in a server
+func (s *ServerService) CreateCategory(category models.Category) error {
+	_, err := s.db.Exec(
+		"INSERT INTO categories (id, server_id, name, position, created_at, updated_at) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)",
+		category.ID, category.ServerId, category.Name, category.Position, category.CreatedAt, category.UpdatedAt,
+	)
+	return err
+}
+
+// GetServerCategories returns all categories in a server
+func (s *ServerService) GetServerCategories(serverId string) ([]models.CategoryResponse, error) {
+	rows, err := s.db.Query(`
+		SELECT id, server_id, name, position, created_at
+		FROM categories
+		WHERE server_id = $1::uuid
+		ORDER BY position ASC
+	`, serverId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var categories []models.CategoryResponse
+	for rows.Next() {
+		var category models.CategoryResponse
+		if err := rows.Scan(
+			&category.ID, &category.ServerId, &category.Name, &category.Position, &category.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		categories = append(categories, category)
+	}
+
+	return categories, nil
+}
+
+// GetCategoryChannels returns all channels in a category
+func (s *ServerService) GetCategoryChannels(categoryId, userId string) ([]models.ChannelResponse, error) {
+	rows, err := s.db.Query(`
+		SELECT c.id, c.server_id, c.category_id, c.name, c.description, c.is_private, c.created_at
+		FROM channels c
+		WHERE c.category_id = $1::uuid AND (
+			c.is_private = false OR 
+			EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = $2::uuid)
+		)
+		ORDER BY c.name ASC
+	`, categoryId, userId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var channels []models.ChannelResponse
+	for rows.Next() {
+		var channel models.ChannelResponse
+		var categoryId sql.NullString // Use NullString to handle NULL values
+
+		if err := rows.Scan(
+			&channel.ID, &channel.ServerId, &categoryId, &channel.Name, &channel.Description,
+			&channel.IsPrivate, &channel.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		// Convert NullString to string
+		if categoryId.Valid {
+			channel.CategoryId = categoryId.String
+		} else {
+			channel.CategoryId = ""
+		}
+
+		channels = append(channels, channel)
+	}
+
+	return channels, nil
+}
+
+// UpdateChannelCategory updates a channel's category
+func (s *ServerService) UpdateChannelCategory(channelId, categoryId string) error {
+	_, err := s.db.Exec(
+		"UPDATE channels SET category_id = $1::uuid, updated_at = $2 WHERE id = $3::uuid",
+		categoryId, time.Now(), channelId,
+	)
+	return err
+}
+
+// GetServerIdByCategoryId returns the server ID for a category
+func (s *ServerService) GetServerIdByCategoryId(categoryId string) (string, error) {
+	var serverId string
+	err := s.db.QueryRow(
+		"SELECT server_id FROM categories WHERE id = $1::uuid",
+		categoryId,
+	).Scan(&serverId)
+	return serverId, err
 }
