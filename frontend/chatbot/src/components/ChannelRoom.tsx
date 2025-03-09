@@ -6,6 +6,14 @@ import ServerSidebar from './ServerSidebar';
 import { useSidebar } from '@/context/SidebarContext';
 import { parseMessageContent } from '@/utils/messageParser';
 
+// APIのベースURLを定義
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+// パラメータの型定義
+type ChannelParams = {
+  id?: string;
+};
+
 // SVGアイコンコンポーネント
 const PaperClipIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -54,7 +62,7 @@ interface Message {
 }
 
 export default function ChannelRoom() {
-  const params = useParams();
+  const params = useParams() as ChannelParams;
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -67,6 +75,15 @@ export default function ChannelRoom() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { isSidebarOpen } = useSidebar();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // コンポーネントの初期化時にデバッグ情報を出力
+  console.log('ChannelRoomコンポーネントが初期化されました');
+  console.log('パラメータ:', params);
+  console.log('環境変数:', {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL,
+    NEXT_PUBLIC_FRONTEND_URL: process.env.NEXT_PUBLIC_FRONTEND_URL,
+  });
 
   useEffect(() => {
     if (params.id) {
@@ -97,20 +114,97 @@ export default function ChannelRoom() {
       }
       
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3000/api/channels/${params.id}/messages`, {
+      if (!token) {
+        console.error('認証トークンがありません');
+        setError('認証トークンがありません。再度ログインしてください。');
+        return;
+      }
+      
+      console.log(`チャンネルID ${params.id} のメッセージを取得中...`);
+      console.log('認証トークン:', token.substring(0, 10) + '...');
+      
+      const response = await fetch(`${API_URL}/api/channels/${params.id}/messages`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
+      console.log('レスポンスステータス:', response.status);
+      console.log('レスポンスヘッダー:', Object.fromEntries([...response.headers.entries()]));
+
       if (!response.ok) {
-        throw new Error('メッセージの取得に失敗しました');
+        const errorText = await response.text();
+        console.error(`メッセージ取得エラー: ${response.status} ${response.statusText}`, errorText);
+        throw new Error(`メッセージの取得に失敗しました: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json();
-      setMessages(data.messages || []);
+      // レスポンスの生データを確認
+      const responseText = await response.text();
+      console.log('チャンネルメッセージ取得レスポンス（生テキスト）:', responseText);
+      
+      // 空のレスポンスの場合は早期リターン
+      if (!responseText || responseText.trim() === '') {
+        console.warn('レスポンスが空です');
+        setMessages([]);
+        return;
+      }
+      
+      // JSONとしてパース
+      let data = null;
+      try {
+        data = JSON.parse(responseText);
+        console.log('チャンネルメッセージ取得レスポンス（パース後）:', data);
+        
+        // データの構造を詳細に確認
+        console.log('データ型:', typeof data);
+        if (data === null) {
+          console.error('データがnullです');
+          setMessages([]);
+          return;
+        }
+        
+        console.log('データの構造:', Array.isArray(data) ? 'Array' : 'Object');
+        
+        // データが配列の場合（直接メッセージの配列が返される場合）
+        if (Array.isArray(data)) {
+          console.log('メッセージ配列を直接受信:', data.length);
+          setMessages(data);
+          return;
+        }
+        
+        // データがオブジェクトで、messagesプロパティがある場合
+        if (data && typeof data === 'object' && 'messages' in data) {
+          // messagesがnullでないことを確認
+          if (data.messages === null) {
+            console.warn('messagesプロパティがnullです');
+            setMessages([]);
+            return;
+          }
+          
+          // messagesが配列であることを確認
+          if (!Array.isArray(data.messages)) {
+            console.warn('messagesプロパティが配列ではありません:', typeof data.messages);
+            setMessages([]);
+            return;
+          }
+          
+          console.log('messagesプロパティからメッセージを取得:', data.messages.length);
+          setMessages(data.messages);
+          return;
+        }
+        
+        // その他の場合
+        console.warn('予期しないデータ形式です:', data);
+        setMessages([]);
+      } catch (err) {
+        console.error('JSONパースエラー:', err);
+        setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
+        setMessages([]);
+      }
     } catch (err) {
+      console.error('メッセージ取得エラー:', err);
       setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
+      setMessages([]);
     }
   };
 
@@ -143,7 +237,7 @@ export default function ChannelRoom() {
         
         try {
           // Content-Typeヘッダーを設定しない（ブラウザが自動的に設定する）
-          const uploadResponse = await fetch(`http://localhost:3000/api/channels/${params.id}/upload`, {
+          const uploadResponse = await fetch(`${API_URL}/api/channels/${params.id}/upload`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -173,7 +267,7 @@ export default function ChannelRoom() {
       } 
       // ファイルがなく、テキストメッセージのみの場合
       else if (newMessage.trim() !== '') {
-        const messageResponse = await fetch(`http://localhost:3000/api/channels/${params.id}/messages`, {
+        const messageResponse = await fetch(`${API_URL}/api/channels/${params.id}/messages`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -236,7 +330,7 @@ export default function ChannelRoom() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3000/api/messages/${editingMessageId}`, {
+      const response = await fetch(`${API_URL}/api/messages/${editingMessageId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -261,7 +355,7 @@ export default function ChannelRoom() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3000/api/messages/${messageId}`, {
+      const response = await fetch(`${API_URL}/api/messages/${messageId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -310,7 +404,7 @@ export default function ChannelRoom() {
       normalizedPath = `/uploads/${path}`;
     }
     
-    const fileUrl = `http://localhost:3000${normalizedPath}`;
+    const fileUrl = `${API_URL}${normalizedPath}`;
     console.log('Attachment URL:', fileUrl, 'Original path:', path);
     
     // Check if it's an image

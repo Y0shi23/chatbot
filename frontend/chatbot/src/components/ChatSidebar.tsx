@@ -35,7 +35,7 @@ export default function ChatSidebar() {
         
         console.log('チャット履歴取得前のトークン:', token.substring(0, 10) + '...'); // セキュリティのため一部のみ表示
         
-        const response = await fetch('http://localhost:3000/api/chat/history', {
+        const response = await fetch('http://localhost:3000/api/chats', {
           headers: {
             'Authorization': `Bearer ${token}`,
           },

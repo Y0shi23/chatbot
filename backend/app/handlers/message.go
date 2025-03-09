@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"mime/multipart"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
@@ -30,47 +28,48 @@ func NewMessageHandler(messageService *services.MessageService, serverService *s
 
 // SendChannelMessage sends a message to a channel
 func (h *MessageHandler) SendChannelMessage(c *gin.Context) {
-	channelId := c.Param("channelId")
+	channelId := c.Param("id")
+	if channelId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID is required"})
+		return
+	}
 
-	// デバッグ: リクエストの内容を確認
-	fmt.Println("Content-Type:", c.GetHeader("Content-Type"))
-
+	// Get user ID from context
 	userId, exists := c.Get("userID")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	// Check if user has access to the channel
+	// Check if user is a member of the channel
 	hasAccess, err := h.serverService.HasChannelAccess(channelId, userId.(string))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "チャンネルアクセスの確認に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	if !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "このチャンネルにアクセスする権限がありません"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not a member of this channel"})
 		return
 	}
 
-	// Get content from form data
-	content := c.PostForm("content")
-	fmt.Println("Content from form:", content)
-
-	// フォームデータが取得できない場合はJSONからも試みる
-	if content == "" {
-		var jsonData struct {
-			Content string `json:"content"`
-		}
-		if err := c.ShouldBindJSON(&jsonData); err == nil {
-			content = jsonData.Content
-			fmt.Println("Content from JSON:", content)
-		}
+	// Parse request
+	var req struct {
+		Content string `json:"content" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
-	if content == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "メッセージ内容が必要です"})
-		return
+	// Create message
+	messageId := uuid.New().String()
+	message := models.Message{
+		ID:        messageId,
+		ChannelId: channelId,
+		UserId:    userId.(string),
+		Content:   req.Content,
+		Role:      "user",
+		Timestamp: time.Now(),
 	}
 
 	// Handle file uploads if any
@@ -80,7 +79,7 @@ func (h *MessageHandler) SendChannelMessage(c *gin.Context) {
 		files := form.File["files"]
 		for _, file := range files {
 			// Save file and get path
-			filePath, err := h.messageService.SaveAttachment(file)
+			filePath, err := h.messageService.SaveAttachment(file, messageId)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "ファイルのアップロードに失敗しました"})
 				return
@@ -89,251 +88,190 @@ func (h *MessageHandler) SendChannelMessage(c *gin.Context) {
 		}
 	}
 
-	message := models.Message{
-		ID:          uuid.New().String(),
-		Content:     content,
-		ChannelId:   channelId,
-		UserId:      userId.(string),
-		Role:        "user",
-		Timestamp:   time.Now(),
-		Attachments: attachments,
-		IsEdited:    false,
-		IsDeleted:   false,
-	}
+	// Add attachments to message
+	message.Attachments = attachments
 
+	// Save message
 	if err := h.messageService.SaveMessage(message); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "メッセージの送信に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message": message,
-	})
+	c.JSON(http.StatusCreated, message)
 }
 
 // GetChannelMessages gets all messages in a channel
 func (h *MessageHandler) GetChannelMessages(c *gin.Context) {
-	channelId := c.Param("channelId")
+	channelId := c.Param("id")
+	if channelId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID is required"})
+		return
+	}
+
+	// Get user ID from context
 	userId, exists := c.Get("userID")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	// Check if user has access to the channel
+	// Check if user is a member of the channel
 	hasAccess, err := h.serverService.HasChannelAccess(channelId, userId.(string))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "チャンネルアクセスの確認に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	if !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "このチャンネルにアクセスする権限がありません"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not a member of this channel"})
 		return
 	}
 
+	// Get messages
 	messages, err := h.messageService.GetChannelMessages(channelId)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "メッセージの取得に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"messages": messages})
+	// messagesがnilの場合は空の配列を返す
+	if messages == nil {
+		messages = []models.Message{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"messages": messages,
+	})
 }
 
 // EditMessage edits a message
 func (h *MessageHandler) EditMessage(c *gin.Context) {
-	messageId := c.Param("messageId")
-	var req models.EditMessageRequest
+	messageId := c.Param("id")
+	if messageId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message ID is required"})
+		return
+	}
+
+	// Get user ID from context
+	userId, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Check if user is the author of the message
+	isAuthor, err := h.messageService.IsMessageAuthor(messageId, userId.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if !isAuthor {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not the author of this message"})
+		return
+	}
+
+	// Parse request
+	var req struct {
+		Content string `json:"content" binding:"required"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	userId, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
-		return
-	}
-
-	// Check if user is the message author
-	isAuthor, err := h.messageService.IsMessageAuthor(messageId, userId.(string))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "メッセージの確認に失敗しました"})
-		return
-	}
-
-	if !isAuthor {
-		c.JSON(http.StatusForbidden, gin.H{"error": "このメッセージを編集する権限がありません"})
-		return
-	}
-
+	// Edit message
 	if err := h.messageService.EditMessage(messageId, req.Content); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "メッセージの編集に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "メッセージが編集されました"})
+	c.JSON(http.StatusOK, gin.H{"message": "Message updated successfully"})
 }
 
-// DeleteMessage marks a message as deleted
+// DeleteMessage deletes a message
 func (h *MessageHandler) DeleteMessage(c *gin.Context) {
-	messageId := c.Param("messageId")
-	userId, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+	messageId := c.Param("id")
+	if messageId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message ID is required"})
 		return
 	}
 
-	// Check if user is the message author or has admin rights
+	// Get user ID from context
+	userId, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Check if user can delete the message
 	canDelete, err := h.messageService.CanDeleteMessage(messageId, userId.(string))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "権限の確認に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	if !canDelete {
-		c.JSON(http.StatusForbidden, gin.H{"error": "このメッセージを削除する権限がありません"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to delete this message"})
 		return
 	}
 
+	// Delete message
 	if err := h.messageService.DeleteMessage(messageId); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "メッセージの削除に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "メッセージが削除されました"})
+	c.JSON(http.StatusOK, gin.H{"message": "Message deleted successfully"})
 }
 
-// GetAttachment retrieves an attachment file
+// GetAttachment gets an attachment
 func (h *MessageHandler) GetAttachment(c *gin.Context) {
-	attachmentId := c.Param("attachmentId")
-	userId, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+	attachmentId := c.Param("id")
+	if attachmentId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Attachment ID is required"})
 		return
 	}
 
-	// Get attachment info
+	// Get attachment
 	attachment, err := h.messageService.GetAttachment(attachmentId)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "添付ファイルの情報取得に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Check if user has access to the channel where the attachment was posted
-	hasAccess, err := h.serverService.HasChannelAccess(attachment.MessageId, userId.(string))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "チャンネルアクセスの確認に失敗しました"})
-		return
-	}
-
-	if !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "この添付ファイルにアクセスする権限がありません"})
-		return
-	}
-
-	// Serve the file
+	// Serve file
 	c.File(attachment.FilePath)
 }
 
-// UploadFile handles file uploads for a channel
+// UploadFile uploads a file
 func (h *MessageHandler) UploadFile(c *gin.Context) {
-	fmt.Println("\n\n=== UploadFile handler called ===")
-	channelId := c.Param("channelId")
-	fmt.Println("Channel ID:", channelId)
-
-	// デバッグ: リクエストの内容を確認
-	fmt.Println("Content-Type:", c.GetHeader("Content-Type"))
-	fmt.Println("Request method:", c.Request.Method)
-	fmt.Println("Request URL:", c.Request.URL.String())
-
-	// フォームデータを解析する前にリクエストヘッダーを出力
-	for k, v := range c.Request.Header {
-		fmt.Printf("Header %s: %v\n", k, v)
+	// Get channel ID
+	channelId := c.Param("id")
+	if channelId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID is required"})
+		return
 	}
 
+	// Get user ID from context
 	userId, exists := c.Get("userID")
 	if !exists {
-		fmt.Println("User ID not found in context")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	fmt.Println("User ID:", userId)
 
-	// Check if user has access to the channel
+	// Check if user is a member of the channel
 	hasAccess, err := h.serverService.HasChannelAccess(channelId, userId.(string))
 	if err != nil {
-		fmt.Println("HasChannelAccess error:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "チャンネルアクセスの確認に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	if !hasAccess {
-		fmt.Println("User does not have access to the channel")
-		c.JSON(http.StatusForbidden, gin.H{"error": "このチャンネルにアクセスする権限がありません"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not a member of this channel"})
 		return
 	}
 
-	// マルチパートフォームの内容を確認
-	fmt.Println("Parsing multipart form...")
-	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
-		fmt.Println("ParseMultipartForm error:", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "マルチパートフォームの解析に失敗しました: " + err.Error()})
-		return
-	}
-
-	if c.Request.MultipartForm == nil {
-		fmt.Println("MultipartForm is nil")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "マルチパートフォームが見つかりません"})
-		return
-	}
-
-	fmt.Println("Form values:", c.Request.MultipartForm.Value)
-	fmt.Println("Form files:", c.Request.MultipartForm.File)
-
-	// テキストメッセージを取得（存在する場合）
-	var content string
-	if contentValues, exists := c.Request.MultipartForm.Value["content"]; exists && len(contentValues) > 0 {
-		content = contentValues[0]
-		fmt.Println("Message content from form:", content)
-		// 空文字列の場合は明示的にログに出力
-		if content == "" {
-			fmt.Println("Warning: Content is empty string")
-		}
-	} else {
-		fmt.Println("No content field found in form data")
-	}
-
-	// ファイルを探す
-	var file *multipart.FileHeader
-
-	// まず 'file' キーを試す
-	if files, ok := c.Request.MultipartForm.File["file"]; ok && len(files) > 0 {
-		fmt.Println("Found file with key 'file'")
-		file = files[0]
-	} else if files, ok := c.Request.MultipartForm.File["files[]"]; ok && len(files) > 0 {
-		fmt.Println("Found file with key 'files[]'")
-		file = files[0]
-	} else {
-		// 他のキーを試す
-		for k, files := range c.Request.MultipartForm.File {
-			fmt.Printf("Form file key %s has %d files\n", k, len(files))
-			for i, f := range files {
-				fmt.Printf("  File %d: %s, size: %d\n", i, f.Filename, f.Size)
-			}
-
-			if len(files) > 0 {
-				fmt.Printf("Using file from key %s\n", k)
-				file = files[0]
-				break
-			}
-		}
-	}
-
-	if file == nil {
-		fmt.Println("No files found in the form")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ファイルが選択されていません"})
+	// Get file
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File is required"})
 		return
 	}
 
@@ -341,8 +279,11 @@ func (h *MessageHandler) UploadFile(c *gin.Context) {
 	fmt.Println("File name:", file.Filename)
 	fmt.Println("File size:", file.Size)
 
+	// Create a message ID for the attachment
+	messageId := uuid.New().String()
+
 	// Save file and get path
-	filePath, err := h.messageService.SaveAttachment(file)
+	filePath, err := h.messageService.SaveAttachment(file, messageId)
 	if err != nil {
 		fmt.Println("SaveAttachment error:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ファイルのアップロードに失敗しました: " + err.Error()})
@@ -352,27 +293,23 @@ func (h *MessageHandler) UploadFile(c *gin.Context) {
 
 	// Create a message with the attachments
 	message := models.Message{
-		ID:          uuid.New().String(),
-		Content:     content, // フォームから取得したコンテンツを使用
+		ID:          messageId,
 		ChannelId:   channelId,
 		UserId:      userId.(string),
+		Content:     "ファイルがアップロードされました",
 		Role:        "user",
 		Timestamp:   time.Now(),
 		Attachments: []string{filePath},
-		IsEdited:    false,
-		IsDeleted:   false,
 	}
 
+	// Save message
 	if err := h.messageService.SaveMessage(message); err != nil {
-		fmt.Println("SaveMessage error:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "メッセージの保存に失敗しました"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	fmt.Println("Message saved successfully")
-	c.JSON(http.StatusCreated, gin.H{
-		"message": message,
-		"files":   []string{filePath},
+	c.JSON(http.StatusOK, gin.H{
+		"message": "File uploaded successfully",
+		"path":    filePath,
 	})
-	fmt.Println("=== UploadFile handler completed ===\n\n")
 }

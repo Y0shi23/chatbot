@@ -144,7 +144,7 @@ const DraggableChannel = ({
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-center px-3 py-1 rounded ${
+      className={`flex items-center px-3 py-0.5 rounded ${
         isDragActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
       } ${
         isCurrentChannel === true ? 'bg-gray-700' : 'hover:bg-gray-700'
@@ -216,9 +216,9 @@ const DroppableCategory = ({
   return (
     <div 
       ref={setNodeRef}
-      className="mb-4 border border-transparent hover:border-gray-700 rounded p-1"
+      className="mb-2 border border-transparent hover:border-gray-700 rounded p-1"
     >
-      <div className="flex justify-between items-center mb-2">
+      <div className="flex justify-between items-center mb-1">
         <div className="flex items-center cursor-pointer" onClick={toggleExpanded}>
           <button className="mr-1 text-gray-400 hover:text-white">
             {isExpanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
@@ -236,7 +236,7 @@ const DroppableCategory = ({
         )}
       </div>
       {isExpanded && (
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {channels.map((channel) => (
             <DraggableChannel
               key={channel.id}
@@ -280,9 +280,9 @@ const DroppableUncategorized = ({
   return (
     <div 
       ref={setNodeRef}
-      className="mt-4 border border-transparent hover:border-gray-700 rounded p-1"
+      className="mt-2 border border-transparent hover:border-gray-700 rounded p-1"
     >
-      <div className="flex justify-between items-center mb-2">
+      <div className="flex justify-between items-center mb-1">
         <div className="flex items-center cursor-pointer" onClick={toggleExpanded}>
           <button className="mr-1 text-gray-400 hover:text-white">
             {isExpanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
@@ -291,7 +291,7 @@ const DroppableUncategorized = ({
         </div>
       </div>
       {isExpanded && (
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {channels.map((channel) => (
             <DraggableChannel
               key={channel.id}
@@ -915,7 +915,7 @@ export default function ServerSidebar() {
             }}
             collisionDetection={simpleCollisionDetection}
           >
-            <div className="mt-4 border-t border-gray-700 pt-4 px-4">
+            <div className="mt-2 border-t border-gray-700 pt-2 px-4">
               {/* Categories and Channels */}
               {categories.length > 0 ? (
                 categories.map(category => (

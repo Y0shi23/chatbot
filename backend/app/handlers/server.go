@@ -116,7 +116,7 @@ func (h *ServerHandler) GetUserServers(c *gin.Context) {
 // GetServerChannels returns all channels in a server
 func (h *ServerHandler) GetServerChannels(c *gin.Context) {
 	// Get server ID from URL parameter
-	serverId := c.Param("serverId")
+	serverId := c.Param("id")
 	if serverId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "サーバーIDが必要です"})
 		return
@@ -153,7 +153,7 @@ func (h *ServerHandler) GetServerChannels(c *gin.Context) {
 // CreateChannel handles the creation of a new channel in a server
 func (h *ServerHandler) CreateChannel(c *gin.Context) {
 	// Get server ID from URL parameter
-	serverId := c.Param("serverId")
+	serverId := c.Param("id")
 	if serverId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "サーバーIDが必要です"})
 		return
@@ -246,7 +246,7 @@ func (h *ServerHandler) CreateChannel(c *gin.Context) {
 // AddChannelMember adds a user to a private channel
 func (h *ServerHandler) AddChannelMember(c *gin.Context) {
 	// Get channel ID from URL parameter
-	channelId := c.Param("channelId")
+	channelId := c.Param("id")
 	if channelId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "チャンネルIDが必要です"})
 		return
@@ -329,7 +329,7 @@ func (h *ServerHandler) AddChannelMember(c *gin.Context) {
 // JoinServer allows a user to join a server
 func (h *ServerHandler) JoinServer(c *gin.Context) {
 	// Get server ID from URL parameter
-	serverId := c.Param("serverId")
+	serverId := c.Param("id")
 	if serverId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "サーバーIDが必要です"})
 		return
@@ -375,7 +375,7 @@ func (h *ServerHandler) JoinServer(c *gin.Context) {
 // CreateCategory handles the creation of a new category in a server
 func (h *ServerHandler) CreateCategory(c *gin.Context) {
 	// Get server ID from URL parameter
-	serverId := c.Param("serverId")
+	serverId := c.Param("id")
 	if serverId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "サーバーIDが必要です"})
 		return
@@ -447,7 +447,7 @@ func (h *ServerHandler) CreateCategory(c *gin.Context) {
 // GetServerCategories returns all categories in a server
 func (h *ServerHandler) GetServerCategories(c *gin.Context) {
 	// Get server ID from URL parameter
-	serverId := c.Param("serverId")
+	serverId := c.Param("id")
 	if serverId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "サーバーIDが必要です"})
 		return
@@ -484,7 +484,7 @@ func (h *ServerHandler) GetServerCategories(c *gin.Context) {
 // UpdateChannelCategory updates a channel's category
 func (h *ServerHandler) UpdateChannelCategory(c *gin.Context) {
 	// Get channel ID from URL parameter
-	channelId := c.Param("channelId")
+	channelId := c.Param("id")
 	if channelId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "チャンネルIDが必要です"})
 		return

@@ -22,7 +22,7 @@ export default function NewChatForm() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3000/api/chat', {
+      const response = await fetch('http://localhost:3000/api/chats', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -37,7 +37,7 @@ export default function NewChatForm() {
 
       const data = await response.json();
       setMessage('');
-      router.push(`/chat/${data.chatId}`);
+      router.push(`/chats/${data.chatId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
     } finally {

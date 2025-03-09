@@ -16,6 +16,37 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+// authMiddleware is a middleware function that checks if the user is authenticated
+func authMiddleware(userService *services.UserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get the Authorization header
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
+			c.Abort()
+			return
+		}
+
+		// Extract the token
+		tokenString := authHeader
+		if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+			tokenString = authHeader[7:]
+		}
+
+		// Validate the token
+		userID, err := userService.ValidateToken(tokenString)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.Abort()
+			return
+		}
+
+		// Set the user ID in the context
+		c.Set("userID", userID)
+		c.Next()
+	}
+}
+
 func main() {
 	// ロガーの設定
 	gin.SetMode(gin.DebugMode)
@@ -54,6 +85,12 @@ func main() {
 	// サーバーとメッセージのサービスとハンドラーの初期化
 	serverService := services.NewServerService(db)
 	serverHandler := handlers.NewServerHandler(serverService)
+
+	// チャンネルメッセージサービスとハンドラーの初期化
+	channelMessageService := services.NewChannelMessageService(db)
+	channelMessageHandler := handlers.NewChannelMessageHandler(channelMessageService, serverService)
+
+	// 従来のメッセージサービスとハンドラー（後方互換性のため）
 	messageService := services.NewMessageService(db)
 	messageHandler := handlers.NewMessageHandler(messageService, serverService)
 
@@ -69,64 +106,82 @@ func main() {
 		AllowHeaders: []string{
 			"Origin",
 			"Content-Type",
-			"Accept",
+			"Content-Length",
+			"Accept-Encoding",
+			"X-CSRF-Token",
 			"Authorization",
-			"X-Requested-With",
 		},
-		ExposeHeaders:    []string{"Content-Length", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// 認証ルート（認証不要）
-	engine.POST("/api/auth/register", authHandler.Register)
-	engine.POST("/api/auth/login", authHandler.Login)
+	// 静的ファイルの提供
+	engine.Static("/uploads", "./uploads")
 
-	// 静的ファイルを提供するルート
-	engine.Static("/uploads", "/app/uploads")
-
-	// 認証済みユーザー向けルート
-	authRoutes := engine.Group("/api")
-	authRoutes.Use(handlers.AuthMiddleware(userService))
+	// ルーティングの設定
+	api := engine.Group("/api")
 	{
-		authRoutes.GET("/auth/me", authHandler.GetCurrentUser)
-		authRoutes.POST("/chat", chatHandler.CreateChat)
-		authRoutes.GET("/chat/history", chatHandler.GetChatHistory)
-		authRoutes.GET("/chat/:id", chatHandler.GetChat)
-		authRoutes.POST("/chat/:id", chatHandler.AddMessage)
+		// 認証関連のエンドポイント
+		auth := api.Group("/auth")
+		{
+			auth.POST("/register", authHandler.Register)
+			auth.POST("/login", authHandler.Login)
+			auth.GET("/me", authMiddleware(userService), authHandler.GetCurrentUser)
+		}
 
-		// サーバー関連のルート
-		authRoutes.POST("/servers", serverHandler.CreateServer)
-		authRoutes.GET("/servers", serverHandler.GetUserServers)
-		authRoutes.GET("/servers/:serverId/channels", serverHandler.GetServerChannels)
-		authRoutes.POST("/servers/:serverId/channels", serverHandler.CreateChannel)
-		authRoutes.POST("/servers/:serverId/join", serverHandler.JoinServer)
-		authRoutes.POST("/channels/:channelId/members", serverHandler.AddChannelMember)
+		// チャット関連のエンドポイント
+		chats := api.Group("/chats", authMiddleware(userService))
+		{
+			chats.GET("", chatHandler.GetChatHistory)
+			chats.POST("", chatHandler.CreateChat)
+			chats.GET("/:id", chatHandler.GetChat)
+			chats.POST("/:id/messages", chatHandler.AddMessage)
+		}
 
-		// カテゴリー関連のルート
-		authRoutes.POST("/servers/:serverId/categories", serverHandler.CreateCategory)
-		authRoutes.GET("/servers/:serverId/categories", serverHandler.GetServerCategories)
-		authRoutes.POST("/channels/:channelId/category", serverHandler.UpdateChannelCategory)
+		// サーバー関連のエンドポイント
+		servers := api.Group("/servers", authMiddleware(userService))
+		{
+			servers.POST("", serverHandler.CreateServer)
+			servers.GET("", serverHandler.GetUserServers)
+			servers.GET("/:id/channels", serverHandler.GetServerChannels)
+			servers.POST("/:id/channels", serverHandler.CreateChannel)
+			servers.POST("/:id/categories", serverHandler.CreateCategory)
+			servers.POST("/:id/join", serverHandler.JoinServer)
+			servers.GET("/:id/categories", serverHandler.GetServerCategories)
+		}
 
-		// メッセージ関連のルート
-		authRoutes.GET("/channels/:channelId/messages", messageHandler.GetChannelMessages)
-		authRoutes.POST("/channels/:channelId/messages", messageHandler.SendChannelMessage)
-		authRoutes.PUT("/messages/:messageId", messageHandler.EditMessage)
-		authRoutes.DELETE("/messages/:messageId", messageHandler.DeleteMessage)
-		authRoutes.GET("/attachments/:attachmentId", messageHandler.GetAttachment)
-		// ファイルアップロード用のエンドポイント
-		authRoutes.POST("/channels/:channelId/upload", messageHandler.UploadFile)
+		// チャンネル関連のエンドポイント（従来のハンドラー - 後方互換性のため）
+		channels := api.Group("/channels", authMiddleware(userService))
+		{
+			channels.GET("/:id/messages", messageHandler.GetChannelMessages)
+			channels.POST("/:id/messages", messageHandler.SendChannelMessage)
+			channels.PUT("/messages/:id", messageHandler.EditMessage)
+			channels.DELETE("/messages/:id", messageHandler.DeleteMessage)
+			channels.POST("/:id/upload", messageHandler.UploadFile)
+			channels.GET("/attachments/:id", messageHandler.GetAttachment)
+			channels.POST("/:id/members", serverHandler.AddChannelMember)
+			channels.POST("/:id/category", serverHandler.UpdateChannelCategory)
+		}
+
+		// 新しいチャンネルメッセージエンドポイント
+		channelMessages := api.Group("/channel-messages", authMiddleware(userService))
+		{
+			channelMessages.GET("/:id", channelMessageHandler.GetChannelMessages)
+			channelMessages.POST("/:id", channelMessageHandler.CreateChannelMessage)
+			channelMessages.PUT("/:id", channelMessageHandler.EditChannelMessage)
+			channelMessages.DELETE("/:id", channelMessageHandler.DeleteChannelMessage)
+			channelMessages.POST("/attachments", channelMessageHandler.UploadChannelAttachment)
+			channelMessages.GET("/attachments/:id", channelMessageHandler.GetChannelAttachment)
+		}
 	}
 
-	// サーバーの設定
+	// サーバーの設定と起動
 	server := &http.Server{
-		Addr:         ":3000",
-		Handler:      engine,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:    ":3000",
+		Handler: engine,
 	}
 
+	fmt.Println("サーバーを起動しています...")
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		panic(fmt.Sprintf("サーバーの起動に失敗しました: %s", err))
 	}

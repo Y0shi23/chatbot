@@ -33,7 +33,7 @@ func NewChatService(db *sql.DB, openAIClient *openai.Client) *ChatService {
 	}
 }
 
-func (s *ChatService) CreateNewChat(message string, userID string) (string, []models.Message, error) {
+func (s *ChatService) CreateNewChat(message string, userID string) (string, []models.ChatbotMessage, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to begin transaction: %v", err)
@@ -49,64 +49,68 @@ func (s *ChatService) CreateNewChat(message string, userID string) (string, []mo
 		if len(runes) > 30 {
 			title = string(runes[:30]) + "..."
 		} else {
-			title = message + "..."
+			title = message
 		}
 	} else {
 		title = message
 	}
 
-	_, err = tx.Exec(`
-		INSERT INTO chats (id, title, message_count, last_message_at, user_id) 
-		VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4)
-	`, chatID, title, 2, userID)
+	// チャットを作成
+	_, err = tx.Exec(
+		"INSERT INTO chats (id, created_at, title, user_id) VALUES ($1, $2, $3, $4)",
+		chatID, time.Now(), title, userID,
+	)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to insert chat: %v", err)
+		return "", nil, fmt.Errorf("failed to create chat: %v", err)
 	}
 
-	var messages []models.Message
-
-	// ユーザーメッセージを作成
-	userMessage := models.Message{
-		ID:        uuid.New().String(),
-		Content:   message,
-		Role:      "user",
-		Timestamp: time.Now(),
-	}
-	messages = append(messages, userMessage)
-
-	_, err = tx.Exec(`
-		INSERT INTO messages (id, chat_id, content, role, timestamp)
-		VALUES ($1, $2, $3, $4, $5)
-	`, userMessage.ID, chatID, message, "user", userMessage.Timestamp)
+	// ユーザーメッセージを追加
+	userMessageID := uuid.New().String()
+	_, err = tx.Exec(
+		"INSERT INTO chatbot_messages (id, chat_id, content, role, timestamp) VALUES ($1, $2, $3, $4, $5)",
+		userMessageID, chatID, message, "user", time.Now(),
+	)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to insert user message: %v", err)
+		return "", nil, fmt.Errorf("failed to add user message: %v", err)
 	}
 
-	response, err := s.generateOpenAIResponse([]models.Message{{
-		Content: message,
-		Role:    "user",
-	}})
+	// OpenAIからの応答を生成
+	messages := []models.ChatbotMessage{
+		{
+			ID:        userMessageID,
+			ChatId:    chatID,
+			Content:   message,
+			Role:      "user",
+			Timestamp: time.Now(),
+		},
+	}
+
+	// OpenAIからの応答を生成
+	response, err := s.generateOpenAIResponse(messages)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to generate OpenAI response: %v", err)
+		return "", nil, fmt.Errorf("failed to generate AI response: %v", err)
 	}
 
-	// アシスタントメッセージを作成
-	assistantMessage := models.Message{
-		ID:        uuid.New().String(),
+	// AIの応答をデータベースに保存
+	aiMessageID := uuid.New().String()
+	_, err = tx.Exec(
+		"INSERT INTO chatbot_messages (id, chat_id, content, role, timestamp) VALUES ($1, $2, $3, $4, $5)",
+		aiMessageID, chatID, response, "assistant", time.Now(),
+	)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to add AI response: %v", err)
+	}
+
+	// AIの応答をメッセージリストに追加
+	messages = append(messages, models.ChatbotMessage{
+		ID:        aiMessageID,
+		ChatId:    chatID,
 		Content:   response,
 		Role:      "assistant",
 		Timestamp: time.Now(),
-	}
-	messages = append(messages, assistantMessage)
+	})
 
-	_, err = tx.Exec(`
-		INSERT INTO messages (id, chat_id, content, role, timestamp)
-		VALUES ($1, $2, $3, $4, $5)
-	`, assistantMessage.ID, chatID, response, "assistant", assistantMessage.Timestamp)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to insert assistant message: %v", err)
-	}
-
+	// トランザクションをコミット
 	if err = tx.Commit(); err != nil {
 		return "", nil, fmt.Errorf("failed to commit transaction: %v", err)
 	}
@@ -114,216 +118,184 @@ func (s *ChatService) CreateNewChat(message string, userID string) (string, []mo
 	return chatID, messages, nil
 }
 
-// 指定されたチャットIDの会話履歴を取得
 func (s *ChatService) GetChat(chatID string, userID string) (*models.Chat, bool) {
-	chat := &models.Chat{ID: chatID}
-
-	// チャットの所有権を確認
-	var count int
-	err := s.db.QueryRow(`
-		SELECT COUNT(*)
-		FROM chats
-		WHERE id = $1 AND user_id = $2
-	`, chatID, userID).Scan(&count)
-
-	if err != nil || count == 0 {
+	// チャットの所有者を確認
+	var ownerID string
+	err := s.db.QueryRow("SELECT user_id FROM chats WHERE id = $1", chatID).Scan(&ownerID)
+	if err != nil {
 		return nil, false
 	}
 
-	// メッセージを時系列順に取得
-	rows, err := s.db.Query(`
-		SELECT id, content, role, timestamp
-		FROM messages
-		WHERE chat_id = $1
-		ORDER BY timestamp
-	`, chatID)
+	// ユーザーIDが一致するか確認
+	if ownerID != userID {
+		return nil, false
+	}
+
+	// チャットメッセージを取得
+	rows, err := s.db.Query(
+		"SELECT id, content, role, timestamp FROM chatbot_messages WHERE chat_id = $1 ORDER BY timestamp ASC",
+		chatID,
+	)
 	if err != nil {
 		return nil, false
 	}
 	defer rows.Close()
 
+	var messages []models.ChatbotMessage
 	for rows.Next() {
-		var msg models.Message
+		var msg models.ChatbotMessage
 		err := rows.Scan(&msg.ID, &msg.Content, &msg.Role, &msg.Timestamp)
 		if err != nil {
 			return nil, false
 		}
-		chat.Messages = append(chat.Messages, msg)
-	}
-
-	if len(chat.Messages) == 0 {
-		return nil, false
-	}
-	// メッセージを時系列順に取得して返却
-	return chat, true
-}
-
-func (s *ChatService) AddMessage(chatID string, message string, userID string) (*models.Message, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	// チャットの所有権を確認
-	var exists bool
-	err = tx.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 
-			FROM chats 
-			WHERE id = $1 AND user_id = $2
-		)
-	`, chatID, userID).Scan(&exists)
-
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, nil
-	}
-
-	// チャットのメタデータを更新
-	_, err = tx.Exec(`
-		UPDATE chats
-		SET message_count = message_count + 2,
-		    last_message_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`, chatID)
-	if err != nil {
-		return nil, err
-	}
-
-	// ユーザーメッセージを保存
-	userMessage := models.Message{
-		ID:        uuid.New().String(),
-		Content:   message,
-		Role:      "user",
-		Timestamp: time.Now(),
-	}
-	_, err = tx.Exec(`
-		INSERT INTO messages (id, chat_id, content, role, timestamp)
-		VALUES ($1, $2, $3, $4, $5)
-	`, userMessage.ID, chatID, userMessage.Content, userMessage.Role, userMessage.Timestamp)
-	if err != nil {
-		return nil, err
-	}
-
-	// 全メッセージを取得してOpenAIに送信
-	rows, err := tx.Query(`
-		SELECT content, role
-		FROM messages
-		WHERE chat_id = $1
-		ORDER BY timestamp
-	`, chatID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var messages []models.Message
-	for rows.Next() {
-		var msg models.Message
-		err := rows.Scan(&msg.Content, &msg.Role)
-		if err != nil {
-			return nil, err
-		}
+		msg.ChatId = chatID
 		messages = append(messages, msg)
 	}
 
-	// OpenAIの応答を生成
-	response, err := s.generateOpenAIResponse(messages)
+	return &models.Chat{
+		ID:       chatID,
+		Messages: messages,
+	}, true
+}
+
+func (s *ChatService) AddMessage(chatID string, message string, userID string) (*models.ChatbotMessage, error) {
+	// チャットの所有者を確認
+	var ownerID string
+	err := s.db.QueryRow("SELECT user_id FROM chats WHERE id = $1", chatID).Scan(&ownerID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("chat not found: %v", err)
 	}
 
-	// アシスタントの応答を保存
-	assistantMessage := models.Message{
-		ID:        uuid.New().String(),
+	// ユーザーIDが一致するか確認
+	if ownerID != userID {
+		return nil, fmt.Errorf("unauthorized access to chat")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	// ユーザーメッセージを追加
+	userMessageID := uuid.New().String()
+	_, err = tx.Exec(
+		"INSERT INTO chatbot_messages (id, chat_id, content, role, timestamp) VALUES ($1, $2, $3, $4, $5)",
+		userMessageID, chatID, message, "user", time.Now(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add user message: %v", err)
+	}
+
+	// チャットの最終更新時間を更新
+	_, err = tx.Exec(
+		"UPDATE chats SET last_message_at = $1 WHERE id = $2",
+		time.Now(), chatID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update chat: %v", err)
+	}
+
+	// これまでのメッセージを取得
+	rows, err := tx.Query(
+		"SELECT id, content, role, timestamp FROM chatbot_messages WHERE chat_id = $1 ORDER BY timestamp ASC",
+		chatID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get chat messages: %v", err)
+	}
+
+	var messages []models.ChatbotMessage
+	for rows.Next() {
+		var msg models.ChatbotMessage
+		err := rows.Scan(&msg.ID, &msg.Content, &msg.Role, &msg.Timestamp)
+		if err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan message: %v", err)
+		}
+		msg.ChatId = chatID
+		messages = append(messages, msg)
+	}
+	rows.Close()
+
+	// OpenAIからの応答を生成
+	response, err := s.generateOpenAIResponse(messages)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate AI response: %v", err)
+	}
+
+	// AIの応答をデータベースに保存
+	aiMessageID := uuid.New().String()
+	_, err = tx.Exec(
+		"INSERT INTO chatbot_messages (id, chat_id, content, role, timestamp) VALUES ($1, $2, $3, $4, $5)",
+		aiMessageID, chatID, response, "assistant", time.Now(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add AI response: %v", err)
+	}
+
+	// トランザクションをコミット
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	// AIの応答を返す
+	return &models.ChatbotMessage{
+		ID:        aiMessageID,
+		ChatId:    chatID,
 		Content:   response,
 		Role:      "assistant",
 		Timestamp: time.Now(),
-	}
-	_, err = tx.Exec(`
-		INSERT INTO messages (id, chat_id, content, role, timestamp)
-		VALUES ($1, $2, $3, $4, $5)
-	`, assistantMessage.ID, chatID, assistantMessage.Content, assistantMessage.Role, assistantMessage.Timestamp)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = tx.Commit(); err != nil {
-		return nil, err
-	}
-
-	return &assistantMessage, nil
+	}, nil
 }
 
-func (s *ChatService) generateOpenAIResponse(messages []models.Message) (string, error) {
-	var openAIMessages []openai.ChatCompletionMessage
+func (s *ChatService) generateOpenAIResponse(messages []models.ChatbotMessage) (string, error) {
+	// OpenAIのメッセージフォーマットに変換
+	openaiMessages := []openai.ChatCompletionMessage{
+		{
+			Role:    "system",
+			Content: "あなたは親切で丁寧な日本語アシスタントです。ユーザーの質問に対して、簡潔かつ正確に回答してください。",
+		},
+	}
 
 	for _, msg := range messages {
-		role := msg.Role
-		if role == "user" {
-			role = "user"
-		} else {
-			role = "assistant"
-		}
-
-		openAIMessages = append(openAIMessages, openai.ChatCompletionMessage{
-			Role:    role,
+		openaiMessages = append(openaiMessages, openai.ChatCompletionMessage{
+			Role:    msg.Role,
 			Content: msg.Content,
 		})
 	}
 
-	openAIMessages = append([]openai.ChatCompletionMessage{
-		{
-			Role:    "system",
-			Content: "あなたは親切で丁寧な日本語アシスタントです。ユーザーの質問に対して、簡潔で分かりやすい回答を提供してください。",
-		},
-	}, openAIMessages...)
-
+	// OpenAI APIリクエストを作成
 	resp, err := s.openAIClient.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model:       "gpt-4o-mini", //GPT-4o-1miniを使用
-			Messages:    openAIMessages,
-			MaxTokens:   500,
-			Temperature: 0.7,
+			Model:    "gpt-3.5-turbo",
+			Messages: openaiMessages,
 		},
 	)
 
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("OpenAI API error: %v", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("no response from OpenAI")
 	}
 
 	return resp.Choices[0].Message.Content, nil
 }
 
-// すべてのチャット履歴を取得
 func (s *ChatService) GetChatHistory(userID string) ([]models.ChatSummary, error) {
 	rows, err := s.db.Query(`
-		WITH FirstMessages AS (
-			SELECT DISTINCT ON (chat_id)
-				chat_id,
-				content
-			FROM messages
-			WHERE role = 'user'
-			ORDER BY chat_id, timestamp
-		)
-		SELECT 
-			c.id,
-			c.created_at,
-			c.title,
-			c.last_message_at,
-			c.message_count,
-			fm.content as first_message
+		SELECT c.id, c.created_at, c.title, COALESCE(c.last_message_at, c.created_at) as last_message_at,
+		       (SELECT COUNT(*) FROM chatbot_messages WHERE chat_id = c.id) as message_count,
+		       (SELECT content FROM chatbot_messages WHERE chat_id = c.id ORDER BY timestamp ASC LIMIT 1) as first_message
 		FROM chats c
-		LEFT JOIN FirstMessages fm ON c.id = fm.chat_id
 		WHERE c.user_id = $1
-		ORDER BY c.last_message_at DESC
+		ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
 	`, userID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get chat history: %v", err)
 	}
 	defer rows.Close()
 
@@ -331,15 +303,11 @@ func (s *ChatService) GetChatHistory(userID string) ([]models.ChatSummary, error
 	for rows.Next() {
 		var chat models.ChatSummary
 		err := rows.Scan(
-			&chat.ID,
-			&chat.CreatedAt,
-			&chat.Title,
-			&chat.LastMessageAt,
-			&chat.MessageCount,
-			&chat.FirstMessage,
+			&chat.ID, &chat.CreatedAt, &chat.Title, &chat.LastMessageAt,
+			&chat.MessageCount, &chat.FirstMessage,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan chat: %v", err)
 		}
 		chats = append(chats, chat)
 	}
