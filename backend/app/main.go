@@ -138,6 +138,13 @@ func main() {
 			chats.POST("/:id/messages", chatHandler.AddMessage)
 		}
 
+		// メッセージ編集・削除用のエンドポイント
+		messages := api.Group("/messages", authMiddleware(userService))
+		{
+			messages.PUT("/:messageId", chatHandler.EditChatMessage)
+			messages.DELETE("/:messageId", chatHandler.DeleteChatMessage)
+		}
+
 		// サーバー関連のエンドポイント
 		servers := api.Group("/servers", authMiddleware(userService))
 		{
@@ -161,6 +168,7 @@ func main() {
 			channels.GET("/attachments/:id", messageHandler.GetAttachment)
 			channels.POST("/:id/members", serverHandler.AddChannelMember)
 			channels.POST("/:id/category", serverHandler.UpdateChannelCategory)
+			channels.DELETE("/:id", serverHandler.DeleteChannel)
 		}
 
 		// 新しいチャンネルメッセージエンドポイント

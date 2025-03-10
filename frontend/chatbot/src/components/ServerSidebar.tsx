@@ -19,6 +19,9 @@ import {
 } from '@dnd-kit/core';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 
+// APIのベースURLを定義
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
 // SVGアイコンコンポーネント
 const PlusIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -57,6 +60,20 @@ const ChevronRightIcon = () => (
   </svg>
 );
 
+// 編集アイコン
+const PencilIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21h-9.5A2.25 2.25 0 014 18.75V8.25A2.25 2.25 0 016.25 6H11" />
+  </svg>
+);
+
+// 削除アイコン
+const TrashIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+  </svg>
+);
+
 interface Server {
   id: string;
   name: string;
@@ -89,15 +106,20 @@ const DraggableChannel = ({
   channel, 
   isActive, 
   isCurrentChannel, 
-  onAddMember 
+  onAddMember,
+  onEditChannel,
+  onDeleteChannel
 }: { 
   channel: Channel; 
   isActive: boolean; 
   isCurrentChannel: boolean | null;
   onAddMember: (channelId: string) => void;
+  onEditChannel: (channel: Channel) => void;
+  onDeleteChannel: (channelId: string) => void;
 }) => {
   const router = useRouter();
   const [isDragActive, setIsDragActive] = useState(false);
+  const [showActions, setShowActions] = useState(false);
   
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: channel.id,
@@ -144,12 +166,14 @@ const DraggableChannel = ({
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-center px-3 py-0.5 rounded ${
+      className={`flex items-center px-3 py-0.5 rounded group ${
         isDragActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
       } ${
         isCurrentChannel === true ? 'bg-gray-700' : 'hover:bg-gray-700'
       } ${isActive ? 'opacity-50' : ''}`}
       onMouseDown={handleMouseDown}
+      onMouseEnter={() => setShowActions(true)}
+      onMouseLeave={() => setShowActions(false)}
       {...attributes}
       {...listeners}
     >
@@ -165,18 +189,46 @@ const DraggableChannel = ({
         <span className="ml-2 truncate">{channel.name}</span>
       </div>
       
-      {channel.isPrivate && (
-        <button 
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onAddMember(channel.id);
-          }}
-          className="ml-auto p-1 rounded-full hover:bg-gray-600"
-          title="メンバーを追加"
-        >
-          <UserPlusIcon />
-        </button>
+      {showActions && (
+        <div className="flex items-center ml-auto space-x-1">
+          <button 
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onEditChannel(channel);
+            }}
+            className="p-1 rounded-full hover:bg-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+            title="チャンネルを編集"
+          >
+            <PencilIcon />
+          </button>
+          
+          <button 
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDeleteChannel(channel.id);
+            }}
+            className="p-1 rounded-full hover:bg-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+            title="チャンネルを削除"
+          >
+            <TrashIcon />
+          </button>
+          
+          {channel.isPrivate && (
+            <button 
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onAddMember(channel.id);
+              }}
+              className="p-1 rounded-full hover:bg-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="メンバーを追加"
+            >
+              <UserPlusIcon />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -190,7 +242,9 @@ const DroppableCategory = ({
   currentChannelId,
   activeChannelId,
   onAddChannel,
-  onAddMember
+  onAddMember,
+  onEditChannel,
+  onDeleteChannel
 }: { 
   category: Category; 
   channels: Channel[];
@@ -199,6 +253,8 @@ const DroppableCategory = ({
   activeChannelId: string | null;
   onAddChannel: () => void;
   onAddMember: (channelId: string) => void;
+  onEditChannel: (channel: Channel) => void;
+  onDeleteChannel: (channelId: string) => void;
 }) => {
   const { setNodeRef } = useDroppable({
     id: category.id,
@@ -244,6 +300,8 @@ const DroppableCategory = ({
               isActive={activeChannelId === channel.id}
               isCurrentChannel={currentChannelId === channel.id}
               onAddMember={onAddMember}
+              onEditChannel={onEditChannel}
+              onDeleteChannel={onDeleteChannel}
             />
           ))}
         </div>
@@ -257,12 +315,16 @@ const DroppableUncategorized = ({
   channels, 
   currentChannelId,
   activeChannelId,
-  onAddMember
+  onAddMember,
+  onEditChannel,
+  onDeleteChannel
 }: { 
   channels: Channel[];
   currentChannelId: string | null;
   activeChannelId: string | null;
   onAddMember: (channelId: string) => void;
+  onEditChannel: (channel: Channel) => void;
+  onDeleteChannel: (channelId: string) => void;
 }) => {
   const { setNodeRef } = useDroppable({
     id: 'uncategorized',
@@ -299,6 +361,8 @@ const DroppableUncategorized = ({
               isActive={activeChannelId === channel.id}
               isCurrentChannel={currentChannelId === channel.id}
               onAddMember={onAddMember}
+              onEditChannel={onEditChannel}
+              onDeleteChannel={onDeleteChannel}
             />
           ))}
         </div>
@@ -329,6 +393,10 @@ export default function ServerSidebar() {
   const { user } = useAuth();
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  // State for channel editing
+  const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+  const [showEditChannelModal, setShowEditChannelModal] = useState(false);
 
   // Extract current channel ID from path if available
   const pathParts = pathname ? pathname.split('/') : [];
@@ -607,14 +675,66 @@ export default function ServerSidebar() {
       });
 
       if (!response.ok) {
-        throw new Error('チャンネルのカテゴリー更新に失敗しました');
+        throw new Error('チャンネルのカテゴリ更新に失敗しました');
       }
-
-      const data = await response.json();
-      return data;
     } catch (error) {
       console.error('Error updating channel category:', error);
-      throw error; // Re-throw the error so the caller can handle it
+    }
+  };
+
+  // チャンネルを編集する関数
+  const editChannel = async (channelId: string, name: string, description: string, isPrivate: boolean) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/channels/${channelId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ 
+          name, 
+          description, 
+          isPrivate 
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('チャンネルの編集に失敗しました');
+      }
+
+      // 成功したら、チャンネル一覧を再取得
+      if (currentServerData) {
+        fetchChannels(currentServerData.id);
+      }
+    } catch (error) {
+      console.error('Error editing channel:', error);
+    }
+  };
+
+  // チャンネルを削除する関数
+  const deleteChannel = async (channelId: string) => {
+    if (!confirm('このチャンネルを削除しますか？')) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/channels/${channelId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('チャンネルの削除に失敗しました');
+      }
+
+      // 成功したら、チャンネル一覧を再取得
+      if (currentServerData) {
+        fetchChannels(currentServerData.id);
+      }
+    } catch (error) {
+      console.error('Error deleting channel:', error);
     }
   };
 
@@ -622,7 +742,7 @@ export default function ServerSidebar() {
     try {
       // First, get user ID from email
       const token = localStorage.getItem('token');
-      const userResponse = await fetch(`http://localhost:3000/api/users/by-email?email=${email}`, {
+      const userResponse = await fetch(`${API_URL}/api/users/by-email?email=${email}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -635,7 +755,7 @@ export default function ServerSidebar() {
       const userData = await userResponse.json();
       
       // Then add user to channel
-      const response = await fetch(`http://localhost:3000/api/channels/${channelId}/members`, {
+      const response = await fetch(`${API_URL}/api/channels/${channelId}/members`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -844,6 +964,17 @@ export default function ServerSidebar() {
     return closestContainer;
   };
 
+  // Handle edit channel button click
+  const handleEditChannel = (channel: Channel) => {
+    setEditingChannel(channel);
+    setShowEditChannelModal(true);
+  };
+
+  // Handle delete channel button click
+  const handleDeleteChannel = (channelId: string) => {
+    deleteChannel(channelId);
+  };
+
   return (
     <>
       <div 
@@ -934,6 +1065,8 @@ export default function ServerSidebar() {
                       setSelectedChannelId(channelId);
                       setShowAddMemberModal(true);
                     }}
+                    onEditChannel={handleEditChannel}
+                    onDeleteChannel={handleDeleteChannel}
                   />
                 ))
               ) : (
@@ -961,6 +1094,8 @@ export default function ServerSidebar() {
                     setSelectedChannelId(channelId);
                     setShowAddMemberModal(true);
                   }}
+                  onEditChannel={handleEditChannel}
+                  onDeleteChannel={handleDeleteChannel}
                 />
               )}
             </div>
@@ -1257,6 +1392,69 @@ export default function ServerSidebar() {
                   className="px-4 py-2 bg-blue-600 text-white rounded"
                 >
                   作成
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Channel Modal */}
+      {showEditChannelModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4 text-white">チャンネルを編集</h2>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const form = e.target as HTMLFormElement;
+              const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+              const description = (form.elements.namedItem('description') as HTMLTextAreaElement).value;
+              const isPrivate = (form.elements.namedItem('isPrivate') as HTMLInputElement).checked;
+              editChannel(editingChannel!.id, name, description, isPrivate);
+            }}>
+              <div className="mb-4">
+                <label className="block text-gray-300 mb-2">チャンネル名</label>
+                <input 
+                  type="text" 
+                  name="name" 
+                  className="w-full p-2 bg-gray-700 rounded text-white" 
+                  defaultValue={editingChannel?.name}
+                  required 
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-gray-300 mb-2">説明</label>
+                <textarea 
+                  name="description" 
+                  className="w-full p-2 bg-gray-700 rounded text-white" 
+                  rows={3}
+                  defaultValue={editingChannel?.description}
+                />
+              </div>
+              <div className="mb-4">
+                <label className="flex items-center text-gray-300">
+                  <input 
+                    type="checkbox" 
+                    name="isPrivate" 
+                    className="mr-2" 
+                    checked={editingChannel?.isPrivate}
+                  />
+                  プライベートチャンネル（招待されたメンバーのみアクセス可能）
+                </label>
+              </div>
+              <div className="flex justify-end space-x-2">
+                <button 
+                  type="button" 
+                  className="px-4 py-2 bg-gray-700 text-white rounded"
+                  onClick={() => setShowEditChannelModal(false)}
+                >
+                  キャンセル
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 bg-blue-600 text-white rounded"
+                >
+                  保存
                 </button>
               </div>
             </form>

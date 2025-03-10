@@ -533,3 +533,40 @@ func (h *ServerHandler) UpdateChannelCategory(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "チャンネルのカテゴリーが更新されました"})
 }
+
+// DeleteChannel handles the deletion of a channel
+func (h *ServerHandler) DeleteChannel(c *gin.Context) {
+	// Get channel ID from URL parameter
+	channelId := c.Param("id")
+	if channelId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "チャンネルIDが必要です"})
+		return
+	}
+
+	// Get user ID from context
+	userId, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+		return
+	}
+
+	// Check if the user is the owner of the server that contains this channel
+	isOwner, err := h.serverService.IsUserServerOwnerByChannelId(channelId, userId.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !isOwner {
+		c.JSON(http.StatusForbidden, gin.H{"error": "このチャンネルを削除する権限がありません"})
+		return
+	}
+
+	// Delete the channel
+	if err := h.serverService.DeleteChannel(channelId); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "チャンネルが削除されました"})
+}

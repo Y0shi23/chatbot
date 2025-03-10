@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"app/models"
 	"app/services"
 
 	"github.com/gin-gonic/gin"
@@ -136,5 +137,70 @@ func (h *ChatHandler) GetChatHistory(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"chats": chats,
+	})
+}
+
+// チャットメッセージを編集
+func (h *ChatHandler) EditChatMessage(c *gin.Context) {
+	// ユーザーIDを取得
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// メッセージIDを取得
+	messageID := c.Param("messageId")
+	if messageID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message ID is required"})
+		return
+	}
+
+	// リクエストボディを解析
+	var req models.EditMessageRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	// メッセージを編集
+	err := h.chatService.EditChatMessage(messageID, req.Content, userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "Message updated successfully",
+	})
+}
+
+// チャットメッセージを削除
+func (h *ChatHandler) DeleteChatMessage(c *gin.Context) {
+	// ユーザーIDを取得
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// メッセージIDを取得
+	messageID := c.Param("messageId")
+	if messageID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message ID is required"})
+		return
+	}
+
+	// メッセージを削除
+	err := h.chatService.DeleteChatMessage(messageID, userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "Message deleted successfully",
 	})
 }

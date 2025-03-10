@@ -321,3 +321,54 @@ func (s *ServerService) GetServerIdByCategoryId(categoryId string) (string, erro
 	).Scan(&serverId)
 	return serverId, err
 }
+
+// IsUserServerOwnerByChannelId checks if the user is the owner of the server that contains the channel
+func (s *ServerService) IsUserServerOwnerByChannelId(channelId, userId string) (bool, error) {
+	var ownerId string
+	err := s.db.QueryRow(`
+		SELECT s.owner_id 
+		FROM servers s
+		JOIN channels c ON s.id = c.server_id
+		WHERE c.id = $1
+	`, channelId).Scan(&ownerId)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return ownerId == userId, nil
+}
+
+// DeleteChannel deletes a channel
+func (s *ServerService) DeleteChannel(channelId string) error {
+	// Start a transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete channel members
+	_, err = tx.Exec("DELETE FROM channel_members WHERE channel_id = $1", channelId)
+	if err != nil {
+		return err
+	}
+
+	// Delete channel messages
+	_, err = tx.Exec("DELETE FROM channel_messages WHERE channel_id = $1", channelId)
+	if err != nil {
+		return err
+	}
+
+	// Delete the channel
+	_, err = tx.Exec("DELETE FROM channels WHERE id = $1", channelId)
+	if err != nil {
+		return err
+	}
+
+	// Commit the transaction
+	return tx.Commit()
+}

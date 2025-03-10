@@ -69,7 +69,7 @@ type MessageRequest struct {
 	Attachments []string `json:"attachments,omitempty"`
 }
 
-// EditMessageRequest represents a request to edit a message
+// EditMessageRequest はメッセージ編集リクエストの構造体
 type EditMessageRequest struct {
 	Content string `json:"content" binding:"required"`
 }

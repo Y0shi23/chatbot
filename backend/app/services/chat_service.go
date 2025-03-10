@@ -314,3 +314,117 @@ func (s *ChatService) GetChatHistory(userID string) ([]models.ChatSummary, error
 
 	return chats, nil
 }
+
+// チャットメッセージを編集する
+func (s *ChatService) EditChatMessage(messageId, content string, userId string) error {
+	// まず、メッセージが存在するか、そしてユーザーがそのメッセージの所有者かを確認
+	var chatId, messageUserId string
+	err := s.db.QueryRow(
+		"SELECT chat_id, user_id FROM chatbot_messages WHERE id = $1 AND role = 'user'",
+		messageId,
+	).Scan(&chatId, &messageUserId)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("message not found or not editable")
+		}
+		return fmt.Errorf("failed to get message: %v", err)
+	}
+
+	// ユーザーIDが一致するか確認
+	if messageUserId != userId {
+		return fmt.Errorf("unauthorized: you can only edit your own messages")
+	}
+
+	// チャットの所有者を確認
+	var chatOwnerId string
+	err = s.db.QueryRow("SELECT user_id FROM chats WHERE id = $1", chatId).Scan(&chatOwnerId)
+	if err != nil {
+		return fmt.Errorf("failed to get chat: %v", err)
+	}
+
+	// チャットの所有者とユーザーIDが一致するか確認
+	if chatOwnerId != userId {
+		return fmt.Errorf("unauthorized: you can only edit messages in your own chats")
+	}
+
+	// トランザクション開始
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	// メッセージを更新
+	_, err = tx.Exec(
+		"UPDATE chatbot_messages SET content = $1, is_edited = true, edited_at = $2 WHERE id = $3",
+		content, time.Now(), messageId,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update message: %v", err)
+	}
+
+	// トランザクションをコミット
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	return nil
+}
+
+// チャットメッセージを削除する（論理削除）
+func (s *ChatService) DeleteChatMessage(messageId string, userId string) error {
+	// まず、メッセージが存在するか、そしてユーザーがそのメッセージの所有者かを確認
+	var chatId, messageUserId string
+	err := s.db.QueryRow(
+		"SELECT chat_id, user_id FROM chatbot_messages WHERE id = $1 AND role = 'user'",
+		messageId,
+	).Scan(&chatId, &messageUserId)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("message not found or not deletable")
+		}
+		return fmt.Errorf("failed to get message: %v", err)
+	}
+
+	// ユーザーIDが一致するか確認
+	if messageUserId != userId {
+		return fmt.Errorf("unauthorized: you can only delete your own messages")
+	}
+
+	// チャットの所有者を確認
+	var chatOwnerId string
+	err = s.db.QueryRow("SELECT user_id FROM chats WHERE id = $1", chatId).Scan(&chatOwnerId)
+	if err != nil {
+		return fmt.Errorf("failed to get chat: %v", err)
+	}
+
+	// チャットの所有者とユーザーIDが一致するか確認
+	if chatOwnerId != userId {
+		return fmt.Errorf("unauthorized: you can only delete messages in your own chats")
+	}
+
+	// トランザクション開始
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	// メッセージを論理削除
+	_, err = tx.Exec(
+		"UPDATE chatbot_messages SET is_deleted = true WHERE id = $1",
+		messageId,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete message: %v", err)
+	}
+
+	// トランザクションをコミット
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	return nil
+}
