@@ -978,12 +978,10 @@ export default function ServerSidebar() {
   return (
     <>
       <div 
-        className={`
-          bg-gray-800 text-white h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto
-          transition-all duration-300 z-40
-          ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full md:translate-x-0'}
-          md:w-64
-        `}
+        className="bg-gray-800 text-white h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto transition-all duration-300 z-40 w-64 md:w-64"
+        style={{
+          transform: isSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+        }}
         onContextMenu={handleContextMenu}
       >
         <div className="p-4">

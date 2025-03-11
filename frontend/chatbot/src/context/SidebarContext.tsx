@@ -11,39 +11,35 @@ interface SidebarContextType {
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [windowWidth, setWindowWidth] = useState<number>(
-    typeof window !== 'undefined' ? window.innerWidth : 0
-  );
+  // サーバーサイドレンダリング時はデフォルト値を使用し、クライアントサイドでのみウィンドウサイズに基づいて更新
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isClient, setIsClient] = useState(false);
 
+  // クライアントサイドでのみ実行されるuseEffect
   useEffect(() => {
+    setIsClient(true);
+    
+    // 初期状態の設定: 768px以下の場合はサイドバーを閉じる、それ以外は開く
+    const initialState = window.innerWidth > 768;
+    setIsSidebarOpen(initialState);
+    
     // ウィンドウサイズの変更を監視
     const handleResize = () => {
-      setWindowWidth(window.innerWidth);
+      if (window.innerWidth <= 768) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
     };
 
     // コンポーネントマウント時にイベントリスナーを追加
     window.addEventListener('resize', handleResize);
-    
-    // 初期状態の設定: 768px以下の場合はサイドバーを閉じる
-    if (window.innerWidth <= 768) {
-      setIsSidebarOpen(false);
-    }
 
     // クリーンアップ関数
     return () => {
       window.removeEventListener('resize', handleResize);
     };
   }, []);
-
-  // ウィンドウサイズが変わった時に自動的にサイドバーの状態を調整
-  useEffect(() => {
-    if (windowWidth <= 768) {
-      setIsSidebarOpen(false);
-    } else {
-      setIsSidebarOpen(true);
-    }
-  }, [windowWidth]);
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
