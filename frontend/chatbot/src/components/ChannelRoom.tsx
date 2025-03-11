@@ -75,6 +75,11 @@ export default function ChannelRoom() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { isSidebarOpen } = useSidebar();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // ポーリング用のインターバルIDを保持するref
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // 最後に取得したメッセージのIDを保持するref
+  const lastMessageIdRef = useRef<string | null>(null);
 
   // コンポーネントの初期化時にデバッグ情報を出力
   console.log('ChannelRoomコンポーネントが初期化されました');
@@ -88,7 +93,15 @@ export default function ChannelRoom() {
   useEffect(() => {
     if (params.id) {
       fetchMessages();
+      
+      // ポーリングを開始（5秒ごとにメッセージを取得）
+      startPolling();
     }
+    
+    // クリーンアップ関数
+    return () => {
+      stopPolling();
+    };
   }, [params.id]);
 
   useEffect(() => {
@@ -106,7 +119,7 @@ export default function ChannelRoom() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const fetchMessages = async () => {
+  const fetchMessages = async (isPolling = false) => {
     try {
       if (!params.id) {
         console.error('チャンネルIDが指定されていません');
@@ -121,16 +134,21 @@ export default function ChannelRoom() {
       }
       
       console.log(`チャンネルID ${params.id} のメッセージを取得中...`);
-      console.log('認証トークン:', token.substring(0, 10) + '...');
       
-      const response = await fetch(`${API_URL}/api/channels/${params.id}/messages`, {
+      // ポーリング時は最後のメッセージID以降のメッセージのみを取得
+      let url = `${API_URL}/api/channels/${params.id}/messages`;
+      if (isPolling && lastMessageIdRef.current) {
+        url += `?after=${lastMessageIdRef.current}`;
+        console.log(`最後のメッセージID ${lastMessageIdRef.current} 以降のメッセージを取得します`);
+      }
+      
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
       console.log('レスポンスステータス:', response.status);
-      console.log('レスポンスヘッダー:', Object.fromEntries([...response.headers.entries()]));
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -140,35 +158,55 @@ export default function ChannelRoom() {
 
       // レスポンスの生データを確認
       const responseText = await response.text();
-      console.log('チャンネルメッセージ取得レスポンス（生テキスト）:', responseText);
       
       // 空のレスポンスの場合は早期リターン
       if (!responseText || responseText.trim() === '') {
         console.warn('レスポンスが空です');
-        setMessages([]);
+        if (!isPolling) {
+          setMessages([]);
+        }
         return;
       }
       
       // JSONとしてパース
-      let data = null;
+      let data: any = null;
       try {
         data = JSON.parse(responseText);
-        console.log('チャンネルメッセージ取得レスポンス（パース後）:', data);
-        
-        // データの構造を詳細に確認
-        console.log('データ型:', typeof data);
-        if (data === null) {
-          console.error('データがnullです');
-          setMessages([]);
-          return;
-        }
-        
-        console.log('データの構造:', Array.isArray(data) ? 'Array' : 'Object');
         
         // データが配列の場合（直接メッセージの配列が返される場合）
         if (Array.isArray(data)) {
-          console.log('メッセージ配列を直接受信:', data.length);
-          setMessages(data);
+          if (data.length > 0) {
+            // 最後のメッセージIDを更新
+            const lastMessage = data[data.length - 1];
+            if (lastMessage && lastMessage.id) {
+              lastMessageIdRef.current = lastMessage.id;
+              console.log('最後のメッセージIDを更新:', lastMessageIdRef.current);
+            }
+            
+            if (isPolling) {
+              // ポーリングの場合は既存のメッセージに新しいメッセージを追加（重複を防ぐ）
+              setMessages(prevMessages => {
+                // 既存のメッセージIDを取得
+                const existingIds = new Set(prevMessages.map(msg => msg.id));
+                // 重複しないメッセージのみをフィルタリング
+                const newMessages = data.filter((msg: Message) => !existingIds.has(msg.id));
+                console.log('新しいメッセージを追加:', newMessages.length);
+                
+                if (newMessages.length === 0) {
+                  return prevMessages; // 新しいメッセージがなければ状態を更新しない
+                }
+                
+                return [...prevMessages, ...newMessages];
+              });
+            } else {
+              // 初回読み込みの場合はすべてのメッセージを設定
+              setMessages(data);
+              console.log('すべてのメッセージを設定:', data.length);
+            }
+          } else if (!isPolling) {
+            // データが空で初回読み込みの場合は空の配列を設定
+            setMessages([]);
+          }
           return;
         }
         
@@ -177,34 +215,74 @@ export default function ChannelRoom() {
           // messagesがnullでないことを確認
           if (data.messages === null) {
             console.warn('messagesプロパティがnullです');
-            setMessages([]);
+            if (!isPolling) {
+              setMessages([]);
+            }
             return;
           }
           
           // messagesが配列であることを確認
           if (!Array.isArray(data.messages)) {
             console.warn('messagesプロパティが配列ではありません:', typeof data.messages);
-            setMessages([]);
+            if (!isPolling) {
+              setMessages([]);
+            }
             return;
           }
           
-          console.log('messagesプロパティからメッセージを取得:', data.messages.length);
-          setMessages(data.messages);
+          if (data.messages.length > 0) {
+            // 最後のメッセージIDを更新
+            const lastMessage = data.messages[data.messages.length - 1];
+            if (lastMessage && lastMessage.id) {
+              lastMessageIdRef.current = lastMessage.id;
+              console.log('最後のメッセージIDを更新:', lastMessageIdRef.current);
+            }
+            
+            if (isPolling) {
+              // ポーリングの場合は既存のメッセージに新しいメッセージを追加（重複を防ぐ）
+              setMessages(prevMessages => {
+                // 既存のメッセージIDを取得
+                const existingIds = new Set(prevMessages.map(msg => msg.id));
+                // 重複しないメッセージのみをフィルタリング
+                const newMessages = data.messages.filter((msg: Message) => !existingIds.has(msg.id));
+                console.log('新しいメッセージを追加:', newMessages.length);
+                
+                if (newMessages.length === 0) {
+                  return prevMessages; // 新しいメッセージがなければ状態を更新しない
+                }
+                
+                return [...prevMessages, ...newMessages];
+              });
+            } else {
+              // 初回読み込みの場合はすべてのメッセージを設定
+              setMessages(data.messages);
+              console.log('すべてのメッセージを設定:', data.messages.length);
+            }
+          } else if (!isPolling) {
+            // データが空で初回読み込みの場合は空の配列を設定
+            setMessages([]);
+          }
           return;
         }
         
         // その他の場合
         console.warn('予期しないデータ形式です:', data);
-        setMessages([]);
+        if (!isPolling) {
+          setMessages([]);
+        }
       } catch (err) {
         console.error('JSONパースエラー:', err);
         setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
-        setMessages([]);
+        if (!isPolling) {
+          setMessages([]);
+        }
       }
     } catch (err) {
       console.error('メッセージ取得エラー:', err);
       setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
-      setMessages([]);
+      if (!isPolling) {
+        setMessages([]);
+      }
     }
   };
 
@@ -287,7 +365,10 @@ export default function ChannelRoom() {
       setNewMessage('');
       setSelectedFiles([]);
       setPreviewUrls([]);
-      fetchMessages();
+      fetchMessages(); // 全メッセージを再取得
+      
+      // 送信後にポーリングを再開して最新状態を維持
+      startPolling();
     } catch (err) {
       console.error('Error in handleSubmit:', err);
       setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
@@ -345,6 +426,9 @@ export default function ChannelRoom() {
 
       fetchMessages();
       cancelEditing();
+      
+      // 編集後にポーリングを再開
+      startPolling();
     } catch (err) {
       setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
     }
@@ -367,6 +451,9 @@ export default function ChannelRoom() {
       }
 
       fetchMessages();
+      
+      // 削除後にポーリングを再開
+      startPolling();
     } catch (err) {
       setError(err instanceof Error ? err.message : '予期せぬエラーが発生しました');
     }
@@ -450,207 +537,330 @@ export default function ChannelRoom() {
     );
   };
 
+  // ポーリングを開始する関数
+  const startPolling = () => {
+    // 既存のポーリングがあれば停止
+    stopPolling();
+    
+    // 5秒ごとにメッセージを取得
+    pollingIntervalRef.current = setInterval(() => {
+      console.log('ポーリングによるメッセージ取得');
+      fetchMessages(true); // ポーリングフラグをtrueに設定
+    }, 5000);
+    
+    console.log('メッセージポーリングを開始しました');
+  };
+  
+  // ポーリングを停止する関数
+  const stopPolling = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+      console.log('メッセージポーリングを停止しました');
+    }
+  };
+
   return (
-    <>
+    <div className="flex h-screen bg-gray-50">
+      {/* サイドバー */}
       <ServerSidebar />
-      <div 
-        className={`
-          flex-1 transition-all duration-300
-          ${isSidebarOpen ? 'ml-0 md:ml-64' : 'ml-0'}
-        `}
-      >
-        <div className="h-[calc(100vh-4rem)] bg-gray-100 flex flex-col overflow-hidden">
-          <div className="flex-1 p-4 overflow-hidden">
-            <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-4 h-full flex flex-col overflow-hidden">
-              <div className="flex-1 space-y-4 overflow-y-auto mb-4 pt-2">
-                {messages && messages.length > 0 ? (
-                  messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`p-4 rounded-lg ${
-                        message.role === 'user' 
-                          ? 'bg-blue-100 ml-auto max-w-[80%]' 
-                          : 'bg-gray-100 mr-auto max-w-[80%]'
-                      }`}
-                    >
-                      {editingMessageId === message.id ? (
-                        <div>
-                          <textarea
-                            value={editContent}
-                            onChange={(e) => setEditContent(e.target.value)}
-                            className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            rows={3}
-                          />
-                          
-                          {/* 編集中のメッセージの添付ファイルを表示 */}
-                          {editingAttachments.length > 0 && (
-                            <div className="mt-3 p-2 border border-gray-200 rounded-lg bg-gray-50">
-                              <div className="text-sm text-gray-500 mb-2">添付ファイル:</div>
-                              <div className="space-y-2">
-                                {editingAttachments.map((path, index) => (
-                                  <div key={index} className="relative group">
-                                    {renderAttachment(path)}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          
-                          <div className="flex justify-end space-x-2 mt-2">
-                            <button
-                              onClick={cancelEditing}
-                              className="px-3 py-1 bg-gray-300 text-gray-700 rounded"
-                            >
-                              キャンセル
-                            </button>
-                            <button
-                              onClick={saveEdit}
-                              className="px-3 py-1 bg-blue-500 text-white rounded"
-                            >
-                              保存
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="text-gray-800">
-                            {message.isDeleted ? (
-                              <em className="text-gray-500">このメッセージは削除されました</em>
-                            ) : (
-                              parseMessageContent(message.content)
-                            )}
-                          </div>
-                          
-                          {message.attachments && message.attachments.length > 0 && (
-                            <div className="mt-2 space-y-2">
-                              {message.attachments.map((path, index) => (
-                                <div key={index}>
-                                  {renderAttachment(path)}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          
-                          <div className="flex justify-between items-center mt-1">
-                            <p className="text-xs text-gray-500">
-                              {new Date(message.timestamp).toLocaleString()}
-                              {message.isEdited && ' (編集済み)'}
-                            </p>
-                            
-                            {message.role === 'user' && !message.isDeleted && (
-                              <div className="flex space-x-1">
-                                <button
-                                  onClick={() => startEditing(message)}
-                                  className="p-1 text-gray-500 hover:text-blue-500"
-                                  title="編集"
-                                >
-                                  <PencilIcon />
-                                </button>
-                                <button
-                                  onClick={() => deleteMessage(message.id)}
-                                  className="p-1 text-gray-500 hover:text-red-500"
-                                  title="削除"
-                                >
-                                  <TrashIcon />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center text-gray-500">
-                    メッセージはありません。最初のメッセージを送信してください。
-                  </div>
-                )}
-                {isLoading && (
-                  <div className="bg-gray-100 mr-auto max-w-[80%] p-4 rounded-lg">
-                    <p className="text-gray-500">応答を生成中...</p>
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-
-              {error && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                  {error}
+      
+      {/* メインコンテンツ */}
+      <div className={`flex-1 flex flex-col transition-all duration-300 ${isSidebarOpen ? 'md:ml-64' : ''}`}>
+        {/* ヘッダー */}
+        <header className="bg-white border-b border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-semibold text-gray-800">チャンネル</h1>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500">
+                {isLoading ? '接続中...' : '接続済み'}
+              </span>
+              <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-yellow-400' : 'bg-green-500'}`}></div>
+            </div>
+          </div>
+        </header>
+        
+        {/* メッセージエリア */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {/* エラーメッセージ */}
+          {error && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 m-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
                 </div>
-              )}
-
-              {selectedFiles.length > 0 && (
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {previewUrls.map((url, index) => (
-                    <div key={index} className="relative">
-                      {selectedFiles[index].type.startsWith('image/') ? (
-                        <img 
-                          src={url} 
-                          alt="Preview" 
-                          className="h-20 w-20 object-cover rounded border border-gray-300" 
-                        />
-                      ) : (
-                        <div className="h-20 w-20 flex items-center justify-center bg-gray-200 rounded border border-gray-300">
-                          <span className="text-xs text-center p-1 truncate">
-                            {selectedFiles[index].name}
-                          </span>
+                <div className="ml-3">
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* メッセージリスト */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-6" ref={messagesContainerRef}>
+            {messages && messages.length > 0 ? (
+              messages.map((message) => (
+                <div key={message.id} className="animate-fadeIn">
+                  <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {/* アバターとメッセージのコンテナ */}
+                    <div className={`flex ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'} max-w-[80%]`}>
+                      {/* アバター */}
+                      <div className={`flex-shrink-0 ${message.role === 'user' ? 'ml-3' : 'mr-3'}`}>
+                        <div className={`h-10 w-10 rounded-full flex items-center justify-center text-white
+                          ${message.role === 'user' ? 'bg-blue-600' : 'bg-gray-600'}`}>
+                          {message.role === 'user' ? 'U' : 'B'}
                         </div>
-                      )}
+                      </div>
+                      
+                      {/* メッセージ本体 */}
+                      <div>
+                        {/* 編集モード */}
+                        {editingMessageId === message.id ? (
+                          <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4">
+                            <textarea
+                              value={editContent}
+                              onChange={(e) => setEditContent(e.target.value)}
+                              className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              rows={3}
+                            />
+                            
+                            {/* 編集中の添付ファイル */}
+                            {editingAttachments.length > 0 && (
+                              <div className="mt-3">
+                                <p className="text-xs text-gray-500 mb-2">添付ファイル:</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {editingAttachments.map((path, index) => (
+                                    <div key={index} className="relative">
+                                      <div className="h-16 w-16 border border-gray-200 rounded overflow-hidden">
+                                        {/\.(jpg|jpeg|png|gif|webp)$/i.test(path) ? (
+                                          <img src={path} alt="添付ファイル" className="h-full w-full object-cover" />
+                                        ) : (
+                                          <div className="h-full w-full flex items-center justify-center bg-gray-100">
+                                            <span className="text-2xl">📄</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* 編集ボタン */}
+                            <div className="flex justify-end space-x-2 mt-3">
+                              <button
+                                onClick={cancelEditing}
+                                className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition"
+                              >
+                                キャンセル
+                              </button>
+                              <button
+                                onClick={saveEdit}
+                                className="px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition"
+                              >
+                                保存
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            {/* 通常表示モード */}
+                            <div className={`rounded-lg px-4 py-3 shadow-sm
+                              ${message.role === 'user' 
+                                ? 'bg-blue-600 text-white' 
+                                : 'bg-white border border-gray-200 text-gray-800'
+                              }
+                              ${message.isDeleted ? 'opacity-60' : ''}
+                            `}>
+                              {/* メッセージ内容 */}
+                              {message.isDeleted ? (
+                                <p className="italic text-sm opacity-75">このメッセージは削除されました</p>
+                              ) : (
+                                <div className="whitespace-pre-wrap break-words">
+                                  {parseMessageContent(message.content)}
+                                </div>
+                              )}
+                              
+                              {/* 添付ファイル */}
+                              {!message.isDeleted && message.attachments && message.attachments.length > 0 && (
+                                <div className="mt-3 space-y-2">
+                                  {message.attachments.map((path, index) => (
+                                    <div key={index}>
+                                      {renderAttachment(path)}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* メッセージのメタ情報 */}
+                            <div className={`flex items-center mt-1 text-xs
+                              ${message.role === 'user' ? 'justify-end' : 'justify-start'}
+                            `}>
+                              <span className="text-gray-500">
+                                {new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                              </span>
+                              
+                              {message.isEdited && (
+                                <span className="ml-2 text-gray-500">(編集済み)</span>
+                              )}
+                              
+                              {/* 編集・削除ボタン */}
+                              {message.role === 'user' && !message.isDeleted && (
+                                <div className="ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => startEditing(message)}
+                                    className="text-gray-400 hover:text-blue-600 p-1"
+                                    title="編集"
+                                  >
+                                    <PencilIcon />
+                                  </button>
+                                  <button
+                                    onClick={() => deleteMessage(message.id)}
+                                    className="text-gray-400 hover:text-red-600 p-1"
+                                    title="削除"
+                                  >
+                                    <TrashIcon />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center p-6 max-w-sm mx-auto">
+                  <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                  </svg>
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">メッセージはありません</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    このチャンネルでの会話を始めましょう。
+                  </p>
+                </div>
+              </div>
+            )}
+            
+            {/* ローディングインジケーター */}
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 max-w-[80%]">
+                  <div className="flex items-center space-x-2">
+                    <div className="animate-pulse flex space-x-2">
+                      <div className="h-2 w-2 bg-gray-400 rounded-full"></div>
+                      <div className="h-2 w-2 bg-gray-400 rounded-full"></div>
+                      <div className="h-2 w-2 bg-gray-400 rounded-full"></div>
+                    </div>
+                    <p className="text-sm text-gray-500">応答を生成中...</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* 自動スクロール用の参照ポイント */}
+            <div ref={messagesEndRef} />
+          </div>
+          
+          {/* 入力エリア */}
+          <div className="border-t border-gray-200 bg-white p-4">
+            {/* 選択したファイルのプレビュー */}
+            {selectedFiles.length > 0 && (
+              <div className="mb-4">
+                <div className="flex flex-wrap gap-2">
+                  {selectedFiles.map((file, index) => (
+                    <div key={index} className="relative group">
+                      <div className="h-16 w-16 border border-gray-200 rounded-md overflow-hidden bg-gray-50">
+                        {file.type.startsWith('image/') ? (
+                          <img 
+                            src={URL.createObjectURL(file)} 
+                            alt={file.name} 
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="h-full w-full flex flex-col items-center justify-center p-1">
+                            <span className="text-xl">📄</span>
+                            <span className="text-xs truncate w-full text-center">{file.name.split('.').pop()}</span>
+                          </div>
+                        )}
+                      </div>
                       <button
                         onClick={() => removeFile(index)}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"
+                        className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <XMarkIcon />
                       </button>
                     </div>
                   ))}
                 </div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-4 mt-2">
-                <div className="rounded-lg overflow-hidden">
-                  <textarea
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="メッセージを入力してください..."
-                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    rows={3}
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center text-gray-600 hover:text-blue-500"
-                    disabled={isLoading}
-                  >
-                    <PaperClipIcon />
-                    <span className="ml-1">添付ファイル</span>
-                  </button>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileSelect}
-                    className="hidden"
-                    multiple
-                    disabled={isLoading}
-                  />
+              </div>
+            )}
+            
+            {/* メッセージフォーム */}
+            <form onSubmit={handleSubmit} className="relative">
+              <div className="overflow-hidden rounded-lg border border-gray-300 shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+                <textarea
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  placeholder="メッセージを入力..."
+                  className="block w-full resize-none border-0 py-3 px-4 focus:outline-none focus:ring-0 sm:text-sm"
+                  rows={3}
+                  disabled={isLoading}
+                />
+                
+                {/* ツールバー */}
+                <div className="flex items-center justify-between border-t border-gray-200 p-2 bg-gray-50">
+                  <div className="flex space-x-1">
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('file-upload')?.click()}
+                      className="p-2 rounded-full text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition"
+                      disabled={isLoading}
+                    >
+                      <PaperClipIcon />
+                    </button>
+                    <input
+                      id="file-upload"
+                      type="file"
+                      multiple
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      accept="image/*,.pdf,.doc,.docx,.txt"
+                    />
+                  </div>
+                  
                   <button
                     type="submit"
-                    className={`bg-blue-500 text-white py-2 px-4 rounded-lg
-                      ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'}
+                    disabled={isLoading || (!newMessage.trim() && selectedFiles.length === 0)}
+                    className={`inline-flex items-center rounded-md px-4 py-2 text-sm font-medium text-white shadow-sm
+                      ${isLoading || (!newMessage.trim() && selectedFiles.length === 0)
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2'
+                      }
                     `}
-                    disabled={isLoading}
                   >
-                    {isLoading ? '送信中...' : '送信'}
+                    {isLoading ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        送信中...
+                      </>
+                    ) : '送信'}
                   </button>
                 </div>
-              </form>
-            </div>
+              </div>
+            </form>
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 } 
