@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 type MessageHandler struct {
 	messageService *services.MessageService
 	serverService  *services.ServerService
+	wsService      *services.WebSocketService
 }
 
 // NewMessageHandler creates a new message handler
@@ -26,10 +28,15 @@ func NewMessageHandler(messageService *services.MessageService, serverService *s
 	}
 }
 
+// SetWebSocketService はWebSocketServiceを設定する
+func (h *MessageHandler) SetWebSocketService(wsService *services.WebSocketService) {
+	h.wsService = wsService
+}
+
 // SendChannelMessage sends a message to a channel
 func (h *MessageHandler) SendChannelMessage(c *gin.Context) {
-	channelId := c.Param("id")
-	if channelId == "" {
+	channelID := c.Param("id")
+	if channelID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID is required"})
 		return
 	}
@@ -42,7 +49,7 @@ func (h *MessageHandler) SendChannelMessage(c *gin.Context) {
 	}
 
 	// Check if user is a member of the channel
-	hasAccess, err := h.serverService.HasChannelAccess(channelId, userId.(string))
+	hasAccess, err := h.serverService.HasChannelAccess(channelID, userId.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -65,7 +72,7 @@ func (h *MessageHandler) SendChannelMessage(c *gin.Context) {
 	messageId := uuid.New().String()
 	message := models.Message{
 		ID:        messageId,
-		ChannelId: channelId,
+		ChannelId: channelID,
 		UserId:    userId.(string),
 		Content:   req.Content,
 		Role:      "user",
@@ -97,13 +104,23 @@ func (h *MessageHandler) SendChannelMessage(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, message)
+	// レスポンスを返す
+	c.JSON(http.StatusCreated, gin.H{
+		"message": message,
+	})
+
+	// WebSocketでブロードキャスト（WebSocketサービスが設定されている場合）
+	if h.wsService != nil {
+		if err := h.wsService.BroadcastNewMessage(channelID, message); err != nil {
+			log.Printf("WebSocketブロードキャストエラー: %v", err)
+		}
+	}
 }
 
 // GetChannelMessages gets all messages in a channel
 func (h *MessageHandler) GetChannelMessages(c *gin.Context) {
-	channelId := c.Param("id")
-	if channelId == "" {
+	channelID := c.Param("id")
+	if channelID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID is required"})
 		return
 	}
@@ -116,7 +133,7 @@ func (h *MessageHandler) GetChannelMessages(c *gin.Context) {
 	}
 
 	// Check if user is a member of the channel
-	hasAccess, err := h.serverService.HasChannelAccess(channelId, userId.(string))
+	hasAccess, err := h.serverService.HasChannelAccess(channelID, userId.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -127,7 +144,7 @@ func (h *MessageHandler) GetChannelMessages(c *gin.Context) {
 	}
 
 	// Get messages
-	messages, err := h.messageService.GetChannelMessages(channelId)
+	messages, err := h.messageService.GetChannelMessages(channelID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -145,8 +162,8 @@ func (h *MessageHandler) GetChannelMessages(c *gin.Context) {
 
 // EditMessage edits a message
 func (h *MessageHandler) EditMessage(c *gin.Context) {
-	messageId := c.Param("id")
-	if messageId == "" {
+	messageID := c.Param("id")
+	if messageID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Message ID is required"})
 		return
 	}
@@ -159,7 +176,7 @@ func (h *MessageHandler) EditMessage(c *gin.Context) {
 	}
 
 	// Check if user is the author of the message
-	isAuthor, err := h.messageService.IsMessageAuthor(messageId, userId.(string))
+	isAuthor, err := h.messageService.IsMessageAuthor(messageID, userId.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -179,18 +196,42 @@ func (h *MessageHandler) EditMessage(c *gin.Context) {
 	}
 
 	// Edit message
-	if err := h.messageService.EditMessage(messageId, req.Content); err != nil {
+	if err := h.messageService.EditMessage(messageID, req.Content); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Message updated successfully"})
+	// メッセージのチャンネルIDを取得
+	var channelID string
+	err = h.messageService.DB.QueryRow("SELECT channel_id FROM messages WHERE id = $1", messageID).Scan(&channelID)
+	if err != nil {
+		log.Printf("メッセージのチャンネルID取得エラー: %v", err)
+	}
+
+	// レスポンスを返す
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Message updated successfully",
+	})
+
+	// WebSocketでブロードキャスト（WebSocketサービスが設定されている場合）
+	if h.wsService != nil && channelID != "" {
+		// 更新されたメッセージを取得
+		updatedMessage, err := h.messageService.GetMessageByID(messageID)
+		if err != nil {
+			log.Printf("更新されたメッセージの取得エラー: %v", err)
+			return
+		}
+
+		if err := h.wsService.BroadcastMessageUpdate(channelID, updatedMessage); err != nil {
+			log.Printf("WebSocketブロードキャストエラー: %v", err)
+		}
+	}
 }
 
 // DeleteMessage deletes a message
 func (h *MessageHandler) DeleteMessage(c *gin.Context) {
-	messageId := c.Param("id")
-	if messageId == "" {
+	messageID := c.Param("id")
+	if messageID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Message ID is required"})
 		return
 	}
@@ -203,7 +244,7 @@ func (h *MessageHandler) DeleteMessage(c *gin.Context) {
 	}
 
 	// Check if user can delete the message
-	canDelete, err := h.messageService.CanDeleteMessage(messageId, userId.(string))
+	canDelete, err := h.messageService.CanDeleteMessage(messageID, userId.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -214,24 +255,41 @@ func (h *MessageHandler) DeleteMessage(c *gin.Context) {
 	}
 
 	// Delete message
-	if err := h.messageService.DeleteMessage(messageId); err != nil {
+	if err := h.messageService.DeleteMessage(messageID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Message deleted successfully"})
+	// メッセージのチャンネルIDを取得
+	var channelID string
+	err = h.messageService.DB.QueryRow("SELECT channel_id FROM messages WHERE id = $1", messageID).Scan(&channelID)
+	if err != nil {
+		log.Printf("メッセージのチャンネルID取得エラー: %v", err)
+	}
+
+	// レスポンスを返す
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Message deleted successfully",
+	})
+
+	// WebSocketでブロードキャスト（WebSocketサービスが設定されている場合）
+	if h.wsService != nil && channelID != "" {
+		if err := h.wsService.BroadcastMessageDelete(channelID, messageID); err != nil {
+			log.Printf("WebSocketブロードキャストエラー: %v", err)
+		}
+	}
 }
 
 // GetAttachment gets an attachment
 func (h *MessageHandler) GetAttachment(c *gin.Context) {
-	attachmentId := c.Param("id")
-	if attachmentId == "" {
+	attachmentID := c.Param("id")
+	if attachmentID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Attachment ID is required"})
 		return
 	}
 
 	// Get attachment
-	attachment, err := h.messageService.GetAttachment(attachmentId)
+	attachment, err := h.messageService.GetAttachment(attachmentID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -244,8 +302,8 @@ func (h *MessageHandler) GetAttachment(c *gin.Context) {
 // UploadFile uploads a file
 func (h *MessageHandler) UploadFile(c *gin.Context) {
 	// Get channel ID
-	channelId := c.Param("id")
-	if channelId == "" {
+	channelID := c.Param("id")
+	if channelID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID is required"})
 		return
 	}
@@ -258,7 +316,7 @@ func (h *MessageHandler) UploadFile(c *gin.Context) {
 	}
 
 	// Check if user is a member of the channel
-	hasAccess, err := h.serverService.HasChannelAccess(channelId, userId.(string))
+	hasAccess, err := h.serverService.HasChannelAccess(channelID, userId.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -280,10 +338,10 @@ func (h *MessageHandler) UploadFile(c *gin.Context) {
 	fmt.Println("File size:", file.Size)
 
 	// Create a message ID for the attachment
-	messageId := uuid.New().String()
+	messageID := uuid.New().String()
 
 	// Save file and get path
-	filePath, err := h.messageService.SaveAttachment(file, messageId)
+	filePath, err := h.messageService.SaveAttachment(file, messageID)
 	if err != nil {
 		fmt.Println("SaveAttachment error:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ファイルのアップロードに失敗しました: " + err.Error()})
@@ -293,8 +351,8 @@ func (h *MessageHandler) UploadFile(c *gin.Context) {
 
 	// Create a message with the attachments
 	message := models.Message{
-		ID:          messageId,
-		ChannelId:   channelId,
+		ID:          messageID,
+		ChannelId:   channelID,
 		UserId:      userId.(string),
 		Content:     "ファイルがアップロードされました",
 		Role:        "user",

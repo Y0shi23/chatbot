@@ -94,6 +94,10 @@ func main() {
 	messageService := services.NewMessageService(db)
 	messageHandler := handlers.NewMessageHandler(messageService, serverService)
 
+	// WebSocketサービスとハンドラーの初期化
+	wsService := services.NewWebSocketService()
+	wsHandler := handlers.NewWebSocketHandler(wsService, userService, serverService)
+
 	engine := gin.Default()
 
 	// 信頼するプロキシを設定
@@ -183,6 +187,13 @@ func main() {
 			channelMessages.GET("/attachments/:id", channelMessageHandler.GetChannelAttachment)
 		}
 	}
+
+	// WebSocketエンドポイント
+	engine.GET("/ws/channels/:channelId", wsHandler.HandleWebSocket)
+
+	// メッセージの更新・削除時にWebSocketでブロードキャストするためのフックを設定
+	messageHandler.SetWebSocketService(wsService)
+	channelMessageHandler.SetWebSocketService(wsService)
 
 	// サーバーの設定と起動
 	server := &http.Server{

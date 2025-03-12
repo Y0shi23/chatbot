@@ -3,6 +3,7 @@ package handlers
 import (
 	"app/models"
 	"app/services"
+	"log"
 	"net/http"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 type ChannelMessageHandler struct {
 	channelMessageService *services.ChannelMessageService
 	serverService         *services.ServerService
+	wsService             *services.WebSocketService
 }
 
 // NewChannelMessageHandler creates a new channel message handler
@@ -22,6 +24,11 @@ func NewChannelMessageHandler(channelMessageService *services.ChannelMessageServ
 		channelMessageService: channelMessageService,
 		serverService:         serverService,
 	}
+}
+
+// SetWebSocketService はWebSocketServiceを設定する
+func (h *ChannelMessageHandler) SetWebSocketService(wsService *services.WebSocketService) {
+	h.wsService = wsService
 }
 
 // GetChannelMessages retrieves all messages for a specific channel
@@ -62,8 +69,8 @@ func (h *ChannelMessageHandler) GetChannelMessages(c *gin.Context) {
 
 // CreateChannelMessage creates a new message in a channel
 func (h *ChannelMessageHandler) CreateChannelMessage(c *gin.Context) {
-	channelId := c.Param("id")
-	if channelId == "" {
+	channelID := c.Param("id")
+	if channelID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID is required"})
 		return
 	}
@@ -77,7 +84,7 @@ func (h *ChannelMessageHandler) CreateChannelMessage(c *gin.Context) {
 
 	// For now, we'll skip the channel membership check
 	// In a real implementation, you would check if the user is a member of the channel
-	// using a method like h.serverService.IsChannelMember(channelId, userId.(string))
+	// using a method like h.serverService.IsChannelMember(channelID, userId.(string))
 
 	// Parse request
 	var req models.ChannelMessageRequest
@@ -89,7 +96,7 @@ func (h *ChannelMessageHandler) CreateChannelMessage(c *gin.Context) {
 	// Create message
 	message := models.ChannelMessage{
 		ID:        uuid.New().String(),
-		ChannelId: channelId,
+		ChannelId: channelID,
 		UserId:    userId.(string),
 		Content:   req.Content,
 		Timestamp: time.Now(),
@@ -114,13 +121,23 @@ func (h *ChannelMessageHandler) CreateChannelMessage(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, message)
+	// レスポンスを返す
+	c.JSON(http.StatusCreated, gin.H{
+		"message": message,
+	})
+
+	// WebSocketでブロードキャスト（WebSocketサービスが設定されている場合）
+	if h.wsService != nil {
+		if err := h.wsService.BroadcastNewMessage(channelID, message); err != nil {
+			log.Printf("WebSocketブロードキャストエラー: %v", err)
+		}
+	}
 }
 
-// EditChannelMessage edits a channel message
+// EditChannelMessage edits a message
 func (h *ChannelMessageHandler) EditChannelMessage(c *gin.Context) {
-	messageId := c.Param("id")
-	if messageId == "" {
+	messageID := c.Param("id")
+	if messageID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Message ID is required"})
 		return
 	}
@@ -133,7 +150,7 @@ func (h *ChannelMessageHandler) EditChannelMessage(c *gin.Context) {
 	}
 
 	// Check if user is the author of the message
-	isAuthor, err := h.channelMessageService.IsMessageAuthor(messageId, userId.(string))
+	isAuthor, err := h.channelMessageService.IsMessageAuthor(messageID, userId.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -151,18 +168,42 @@ func (h *ChannelMessageHandler) EditChannelMessage(c *gin.Context) {
 	}
 
 	// Edit message
-	if err := h.channelMessageService.EditChannelMessage(messageId, req.Content); err != nil {
+	if err := h.channelMessageService.EditChannelMessage(messageID, req.Content); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Message updated successfully"})
+	// メッセージのチャンネルIDを取得
+	var channelID string
+	err = h.channelMessageService.DB.QueryRow("SELECT channel_id FROM channel_messages WHERE id = $1", messageID).Scan(&channelID)
+	if err != nil {
+		log.Printf("メッセージのチャンネルID取得エラー: %v", err)
+	}
+
+	// レスポンスを返す
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Message updated successfully",
+	})
+
+	// WebSocketでブロードキャスト（WebSocketサービスが設定されている場合）
+	if h.wsService != nil && channelID != "" {
+		// 更新されたメッセージを取得
+		updatedMessage, err := h.channelMessageService.GetMessageByID(messageID)
+		if err != nil {
+			log.Printf("更新されたメッセージの取得エラー: %v", err)
+			return
+		}
+
+		if err := h.wsService.BroadcastMessageUpdate(channelID, updatedMessage); err != nil {
+			log.Printf("WebSocketブロードキャストエラー: %v", err)
+		}
+	}
 }
 
-// DeleteChannelMessage deletes a channel message
+// DeleteChannelMessage deletes a message
 func (h *ChannelMessageHandler) DeleteChannelMessage(c *gin.Context) {
-	messageId := c.Param("id")
-	if messageId == "" {
+	messageID := c.Param("id")
+	if messageID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Message ID is required"})
 		return
 	}
@@ -175,7 +216,7 @@ func (h *ChannelMessageHandler) DeleteChannelMessage(c *gin.Context) {
 	}
 
 	// Check if user is the author of the message
-	isAuthor, err := h.channelMessageService.IsMessageAuthor(messageId, userId.(string))
+	isAuthor, err := h.channelMessageService.IsMessageAuthor(messageID, userId.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -186,12 +227,29 @@ func (h *ChannelMessageHandler) DeleteChannelMessage(c *gin.Context) {
 	}
 
 	// Delete message
-	if err := h.channelMessageService.DeleteChannelMessage(messageId); err != nil {
+	if err := h.channelMessageService.DeleteChannelMessage(messageID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Message deleted successfully"})
+	// メッセージのチャンネルIDを取得
+	var channelID string
+	err = h.channelMessageService.DB.QueryRow("SELECT channel_id FROM channel_messages WHERE id = $1", messageID).Scan(&channelID)
+	if err != nil {
+		log.Printf("メッセージのチャンネルID取得エラー: %v", err)
+	}
+
+	// レスポンスを返す
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Message deleted successfully",
+	})
+
+	// WebSocketでブロードキャスト（WebSocketサービスが設定されている場合）
+	if h.wsService != nil && channelID != "" {
+		if err := h.wsService.BroadcastMessageDelete(channelID, messageID); err != nil {
+			log.Printf("WebSocketブロードキャストエラー: %v", err)
+		}
+	}
 }
 
 // UploadChannelAttachment uploads a file attachment for a channel message
@@ -204,8 +262,8 @@ func (h *ChannelMessageHandler) UploadChannelAttachment(c *gin.Context) {
 	}
 
 	// Get message ID
-	messageId := c.PostForm("messageId")
-	if messageId == "" {
+	messageID := c.PostForm("messageId")
+	if messageID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Message ID is required"})
 		return
 	}
@@ -218,7 +276,7 @@ func (h *ChannelMessageHandler) UploadChannelAttachment(c *gin.Context) {
 	}
 
 	// Save attachment
-	attachmentId, err := h.channelMessageService.SaveChannelAttachment(file, messageId)
+	attachmentId, err := h.channelMessageService.SaveChannelAttachment(file, messageID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

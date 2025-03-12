@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+	"fmt"
 	"mime/multipart"
 	"path/filepath"
 
@@ -12,14 +13,14 @@ import (
 // This service is maintained for backward compatibility during migration
 // It will be deprecated after migration is complete
 type MessageService struct {
-	db                    *sql.DB
+	DB                    *sql.DB
 	channelMessageService *ChannelMessageService
 }
 
 // NewMessageService creates a new message service
 func NewMessageService(db *sql.DB) *MessageService {
 	return &MessageService{
-		db:                    db,
+		DB:                    db,
 		channelMessageService: NewChannelMessageService(db),
 	}
 }
@@ -87,7 +88,7 @@ func (s *MessageService) CanDeleteMessage(messageId, userId string) (bool, error
 
 	// If not the author, check if user is an admin or owner of the server
 	var channelId string
-	err = s.db.QueryRow(
+	err = s.DB.QueryRow(
 		"SELECT channel_id FROM channel_messages WHERE id = $1",
 		messageId,
 	).Scan(&channelId)
@@ -96,7 +97,7 @@ func (s *MessageService) CanDeleteMessage(messageId, userId string) (bool, error
 	}
 
 	var serverId string
-	err = s.db.QueryRow(
+	err = s.DB.QueryRow(
 		"SELECT server_id FROM channels WHERE id = $1",
 		channelId,
 	).Scan(&serverId)
@@ -105,7 +106,7 @@ func (s *MessageService) CanDeleteMessage(messageId, userId string) (bool, error
 	}
 
 	var role string
-	err = s.db.QueryRow(
+	err = s.DB.QueryRow(
 		"SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2",
 		serverId, userId,
 	).Scan(&role)
@@ -177,4 +178,54 @@ func getFileType(fileName string) string {
 	default:
 		return "other"
 	}
+}
+
+// GetMessageByID gets a message by ID
+func (s *MessageService) GetMessageByID(messageID string) (*models.Message, error) {
+	query := `
+		SELECT id, channel_id, user_id, content, is_edited, is_deleted
+		FROM messages
+		WHERE id = $1
+	`
+
+	var message models.Message
+	err := s.DB.QueryRow(query, messageID).Scan(
+		&message.ID,
+		&message.ChannelId,
+		&message.UserId,
+		&message.Content,
+		&message.IsEdited,
+		&message.IsDeleted,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("メッセージの取得に失敗しました: %w", err)
+	}
+
+	// 添付ファイルを取得
+	attachmentsQuery := `
+		SELECT id, file_path, file_name, file_type, file_size
+		FROM attachments
+		WHERE message_id = $1
+	`
+
+	rows, err := s.DB.Query(attachmentsQuery, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("添付ファイルの取得に失敗しました: %w", err)
+	}
+	defer rows.Close()
+
+	var attachments []string
+	for rows.Next() {
+		var id, filePath, fileName, fileType string
+		var fileSize int64
+		if err := rows.Scan(&id, &filePath, &fileName, &fileType, &fileSize); err != nil {
+			return nil, fmt.Errorf("添付ファイルの読み込みに失敗しました: %w", err)
+		}
+		attachments = append(attachments, filePath)
+	}
+
+	message.Attachments = attachments
+
+	return &message, nil
 }

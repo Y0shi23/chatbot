@@ -6,22 +6,30 @@ import (
 
 // ChannelMessage represents a message in a server channel
 type ChannelMessage struct {
-	ID        string    `json:"id"`
-	ChannelId string    `json:"channelId"`
-	UserId    string    `json:"userId"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
-	IsEdited  bool      `json:"isEdited"`
-	IsDeleted bool      `json:"isDeleted"`
-	EditedAt  time.Time `json:"editedAt,omitempty"`
+	ID          string    `json:"id"`
+	ChannelId   string    `json:"channelId"`
+	UserId      string    `json:"userId"`
+	Content     string    `json:"content"`
+	Timestamp   time.Time `json:"timestamp"`
+	IsEdited    bool      `json:"isEdited"`
+	IsDeleted   bool      `json:"isDeleted"`
+	EditedAt    time.Time `json:"editedAt,omitempty"`
+	Attachments []string  `json:"attachments,omitempty"`
 	// Attachments will be loaded separately
 }
 
 // ChannelMessageWithUser includes user information with the message
 type ChannelMessageWithUser struct {
-	ChannelMessage
-	Username string `json:"username"`
-	// Add other user fields as needed
+	ID          string    `json:"id"`
+	ChannelId   string    `json:"channelId"`
+	UserId      string    `json:"userId"`
+	Username    string    `json:"username"`
+	Content     string    `json:"content"`
+	Timestamp   time.Time `json:"timestamp"`
+	IsEdited    bool      `json:"isEdited"`
+	IsDeleted   bool      `json:"isDeleted"`
+	EditedAt    time.Time `json:"editedAt,omitempty"`
+	Attachments []string  `json:"attachments,omitempty"`
 }
 
 // ChannelAttachment represents a file attachment for a channel message

@@ -14,21 +14,21 @@ import (
 	"app/models"
 )
 
-// ChannelMessageService handles channel message-related business logic
+// ChannelMessageService handles channel message operations
 type ChannelMessageService struct {
-	db *sql.DB
+	DB *sql.DB
 }
 
-// NewChannelMessageService creates a new channel message service
+// NewChannelMessageService creates a new ChannelMessageService
 func NewChannelMessageService(db *sql.DB) *ChannelMessageService {
 	return &ChannelMessageService{
-		db: db,
+		DB: db,
 	}
 }
 
 // SaveChannelMessage saves a channel message to the database
 func (s *ChannelMessageService) SaveChannelMessage(message models.ChannelMessage) error {
-	tx, err := s.db.Begin()
+	tx, err := s.DB.Begin()
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func (s *ChannelMessageService) SaveChannelMessage(message models.ChannelMessage
 
 // GetChannelMessages retrieves all messages for a specific channel
 func (s *ChannelMessageService) GetChannelMessages(channelId string) ([]models.ChannelMessageWithUser, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.DB.Query(`
 		SELECT cm.id, cm.content, cm.channel_id, cm.user_id, cm.timestamp, 
 		       cm.is_edited, cm.is_deleted, cm.edited_at, u.username
 		FROM channel_messages cm
@@ -90,7 +90,7 @@ func (s *ChannelMessageService) GetChannelMessages(channelId string) ([]models.C
 // IsMessageAuthor checks if the user is the author of the message
 func (s *ChannelMessageService) IsMessageAuthor(messageId, userId string) (bool, error) {
 	var count int
-	err := s.db.QueryRow(`
+	err := s.DB.QueryRow(`
 		SELECT COUNT(*) FROM channel_messages 
 		WHERE id = $1 AND user_id = $2
 	`, messageId, userId).Scan(&count)
@@ -104,7 +104,7 @@ func (s *ChannelMessageService) IsMessageAuthor(messageId, userId string) (bool,
 
 // EditChannelMessage edits a channel message
 func (s *ChannelMessageService) EditChannelMessage(messageId, content string) error {
-	_, err := s.db.Exec(`
+	_, err := s.DB.Exec(`
 		UPDATE channel_messages 
 		SET content = $1, is_edited = true, edited_at = $2
 		WHERE id = $3
@@ -115,7 +115,7 @@ func (s *ChannelMessageService) EditChannelMessage(messageId, content string) er
 
 // DeleteChannelMessage marks a channel message as deleted
 func (s *ChannelMessageService) DeleteChannelMessage(messageId string) error {
-	_, err := s.db.Exec(`
+	_, err := s.DB.Exec(`
 		UPDATE channel_messages 
 		SET is_deleted = true
 		WHERE id = $1
@@ -162,7 +162,7 @@ func (s *ChannelMessageService) SaveChannelAttachment(file *multipart.FileHeader
 	}
 
 	// Save attachment info to database
-	_, err = s.db.Exec(`
+	_, err = s.DB.Exec(`
 		INSERT INTO channel_attachments (id, message_id, file_name, file_type, file_path, file_size, uploaded_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`, attachmentId, messageId, file.Filename, getFileType(file.Filename), filePath, file.Size, time.Now())
@@ -180,7 +180,7 @@ func (s *ChannelMessageService) SaveChannelAttachment(file *multipart.FileHeader
 func (s *ChannelMessageService) GetChannelAttachment(attachmentId string) (models.ChannelAttachment, error) {
 	var attachment models.ChannelAttachment
 
-	err := s.db.QueryRow(`
+	err := s.DB.QueryRow(`
 		SELECT id, message_id, file_name, file_type, file_path, file_size, uploaded_at
 		FROM channel_attachments
 		WHERE id = $1
@@ -195,7 +195,7 @@ func (s *ChannelMessageService) GetChannelAttachment(attachmentId string) (model
 
 // GetChannelMessageAttachments retrieves all attachments for a message
 func (s *ChannelMessageService) GetChannelMessageAttachments(messageId string) ([]models.ChannelAttachment, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.DB.Query(`
 		SELECT id, message_id, file_name, file_type, file_path, file_size, uploaded_at
 		FROM channel_attachments
 		WHERE message_id = $1
@@ -220,4 +220,54 @@ func (s *ChannelMessageService) GetChannelMessageAttachments(messageId string) (
 	}
 
 	return attachments, nil
+}
+
+// GetMessageByID gets a message by ID
+func (s *ChannelMessageService) GetMessageByID(messageID string) (*models.ChannelMessage, error) {
+	query := `
+		SELECT id, channel_id, user_id, content, is_edited, is_deleted
+		FROM channel_messages
+		WHERE id = $1
+	`
+
+	var message models.ChannelMessage
+	err := s.DB.QueryRow(query, messageID).Scan(
+		&message.ID,
+		&message.ChannelId,
+		&message.UserId,
+		&message.Content,
+		&message.IsEdited,
+		&message.IsDeleted,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("メッセージの取得に失敗しました: %w", err)
+	}
+
+	// 添付ファイルを取得
+	attachmentsQuery := `
+		SELECT id, file_path, file_name, file_type, file_size
+		FROM channel_attachments
+		WHERE message_id = $1
+	`
+
+	rows, err := s.DB.Query(attachmentsQuery, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("添付ファイルの取得に失敗しました: %w", err)
+	}
+	defer rows.Close()
+
+	var attachments []string
+	for rows.Next() {
+		var id, filePath, fileName, fileType string
+		var fileSize int64
+		if err := rows.Scan(&id, &filePath, &fileName, &fileType, &fileSize); err != nil {
+			return nil, fmt.Errorf("添付ファイルの読み込みに失敗しました: %w", err)
+		}
+		attachments = append(attachments, filePath)
+	}
+
+	message.Attachments = attachments
+
+	return &message, nil
 }

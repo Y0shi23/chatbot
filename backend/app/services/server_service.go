@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	"app/models"
@@ -412,5 +413,34 @@ func (s *ServerService) UserHasAccessToChannel(userID, channelID string) (bool, 
 	if err != nil {
 		return false, err
 	}
+	return count > 0, nil
+}
+
+// UserHasChannelAccess はユーザーが指定されたチャンネルにアクセスできるかどうかを確認する
+func (s *ServerService) UserHasChannelAccess(userID string, channelID string) (bool, error) {
+	// チャンネルの情報を取得
+	query := `
+		SELECT c.id, c.server_id
+		FROM channels c
+		WHERE c.id = $1
+	`
+	var serverID string
+	err := s.db.QueryRow(query, channelID).Scan(&channelID, &serverID)
+	if err != nil {
+		return false, fmt.Errorf("チャンネル情報の取得に失敗しました: %w", err)
+	}
+
+	// ユーザーがサーバーのメンバーかどうかを確認
+	query = `
+		SELECT COUNT(*)
+		FROM server_members
+		WHERE server_id = $1 AND user_id = $2
+	`
+	var count int
+	err = s.db.QueryRow(query, serverID, userID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("サーバーメンバーシップの確認に失敗しました: %w", err)
+	}
+
 	return count > 0, nil
 }
