@@ -389,7 +389,7 @@ export default function ServerSidebar() {
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const router = useRouter();
-  const { isSidebarOpen, closeSidebar } = useSidebar();
+  const { isSidebarOpen, closeSidebar, toggleSidebar } = useSidebar();
   const { user } = useAuth();
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -422,6 +422,14 @@ export default function ServerSidebar() {
   });
   
   const sensors = useSensors(mouseSensor, touchSensor);
+
+  // クライアントサイドでのレンダリングを検出するための状態
+  const [isClient, setIsClient] = useState(false);
+
+  // クライアントサイドでのレンダリングを検出
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
     // トークンの存在を確認
@@ -977,88 +985,130 @@ export default function ServerSidebar() {
 
   return (
     <>
-      <div 
-        className="bg-gray-800 text-white h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto transition-all duration-300 z-40 w-64 md:w-64"
-        style={{
-          transform: isSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-        }}
-        onContextMenu={handleContextMenu}
+      {/* サイドバートグルボタン */}
+      <button
+        onClick={toggleSidebar}
+        className="fixed top-4 left-4 z-50 p-2 rounded-md bg-gray-800 text-white md:hidden"
+        aria-label="Toggle sidebar"
       >
-        <div className="p-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold">サーバー</h2>
-            <button 
-              id="new-server-button"
-              onClick={() => setShowNewServerModal(true)}
-              className="p-1 rounded-full hover:bg-gray-700"
-              title="新しいサーバーを作成"
-            >
-              <PlusIcon />
-            </button>
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+
+      {/* サイドバー本体 - クライアントサイドでのみスタイルを適用 */}
+      {isClient ? (
+        <div 
+          className="bg-gray-800 text-white h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto transition-all duration-300 z-40 w-64 md:w-64"
+          style={{
+            transform: isSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+          }}
+          onContextMenu={handleContextMenu}
+        >
+          <div className="p-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">サーバー</h2>
+              <button 
+                id="new-server-button"
+                onClick={() => setShowNewServerModal(true)}
+                className="p-1 rounded-full hover:bg-gray-700"
+                title="新しいサーバーを作成"
+              >
+                <PlusIcon />
+              </button>
+            </div>
+
+            {isLoading ? (
+              <div className="text-center p-4">読み込み中...</div>
+            ) : (
+              <div className="space-y-1">
+                {!servers || servers.length === 0 ? (
+                  <div className="text-center p-4 text-gray-400">
+                    参加しているサーバが見つかりません
+                  </div>
+                ) : (
+                  servers.map((server) => (
+                    <button
+                      key={server.id}
+                      onClick={() => handleServerSelect(server.id)}
+                      className={`w-full text-left px-3 py-2 rounded ${
+                        server.id === selectedServer ? 'bg-gray-700' : 'hover:bg-gray-700'
+                      }`}
+                    >
+                      <div className="font-medium">{server.name}</div>
+                      <div className="text-xs text-gray-400">{server.memberCount} メンバー</div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
-          {isLoading ? (
-            <div className="text-center p-4">読み込み中...</div>
-          ) : (
-            <div className="space-y-1">
-              {!servers || servers.length === 0 ? (
-                <div className="text-center p-4 text-gray-400">
-                  参加しているサーバが見つかりません
-                </div>
-              ) : (
-                servers.map((server) => (
-                  <button
-                    key={server.id}
-                    onClick={() => handleServerSelect(server.id)}
-                    className={`w-full text-left px-3 py-2 rounded ${
-                      server.id === selectedServer ? 'bg-gray-700' : 'hover:bg-gray-700'
-                    }`}
-                  >
-                    <div className="font-medium">{server.name}</div>
-                    <div className="text-xs text-gray-400">{server.memberCount} メンバー</div>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </div>
+          {selectedServer && (
+            <DndContext
+              sensors={sensors}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              modifiers={[restrictToVerticalAxis]}
+              autoScroll={{
+                enabled: true,
+                speed: 5,
+                threshold: {
+                  x: 0,
+                  y: 0.1,
+                },
+              }}
+              measuring={{
+                droppable: {
+                  strategy: 'always',
+                },
+              }}
+              collisionDetection={simpleCollisionDetection}
+            >
+              <div className="mt-2 border-t border-gray-700 pt-2 px-4">
+                {/* Categories and Channels */}
+                {categories.length > 0 ? (
+                  categories.map(category => (
+                    <DroppableCategory
+                      key={category.id}
+                      category={category}
+                      channels={channelsByCategory[category.id] || []}
+                      isOwner={isServerOwner}
+                      currentChannelId={currentChannelId}
+                      activeChannelId={activeChannel?.id || null}
+                      onAddChannel={() => {
+                        setSelectedCategoryForChannel(category.id);
+                        setShowNewChannelModal(true);
+                      }}
+                      onAddMember={(channelId) => {
+                        setSelectedChannelId(channelId);
+                        setShowAddMemberModal(true);
+                      }}
+                      onEditChannel={handleEditChannel}
+                      onDeleteChannel={handleDeleteChannel}
+                    />
+                  ))
+                ) : (
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-medium">チャンネル</h3>
+                    {isServerOwner && (
+                      <button 
+                        onClick={() => setShowNewChannelModal(true)}
+                        className="p-1 rounded-full hover:bg-gray-700"
+                        title="新しいチャンネルを作成"
+                      >
+                        <PlusIcon />
+                      </button>
+                    )}
+                  </div>
+                )}
 
-        {selectedServer && (
-          <DndContext
-            sensors={sensors}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            modifiers={[restrictToVerticalAxis]}
-            autoScroll={{
-              enabled: true,
-              speed: 5,
-              threshold: {
-                x: 0,
-                y: 0.1,
-              },
-            }}
-            measuring={{
-              droppable: {
-                strategy: 'always',
-              },
-            }}
-            collisionDetection={simpleCollisionDetection}
-          >
-            <div className="mt-2 border-t border-gray-700 pt-2 px-4">
-              {/* Categories and Channels */}
-              {categories.length > 0 ? (
-                categories.map(category => (
-                  <DroppableCategory
-                    key={category.id}
-                    category={category}
-                    channels={channelsByCategory[category.id] || []}
-                    isOwner={isServerOwner}
+                {/* Uncategorized channels */}
+                {channelsByCategory['uncategorized']?.length > 0 && (
+                  <DroppableUncategorized
+                    channels={channelsByCategory['uncategorized']}
                     currentChannelId={currentChannelId}
                     activeChannelId={activeChannel?.id || null}
-                    onAddChannel={() => {
-                      setSelectedCategoryForChannel(category.id);
-                      setShowNewChannelModal(true);
-                    }}
                     onAddMember={(channelId) => {
                       setSelectedChannelId(channelId);
                       setShowAddMemberModal(true);
@@ -1066,69 +1116,43 @@ export default function ServerSidebar() {
                     onEditChannel={handleEditChannel}
                     onDeleteChannel={handleDeleteChannel}
                   />
-                ))
-              ) : (
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="font-medium">チャンネル</h3>
-                  {isServerOwner && (
-                    <button 
-                      onClick={() => setShowNewChannelModal(true)}
-                      className="p-1 rounded-full hover:bg-gray-700"
-                      title="新しいチャンネルを作成"
-                    >
-                      <PlusIcon />
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Uncategorized channels */}
-              {channelsByCategory['uncategorized']?.length > 0 && (
-                <DroppableUncategorized
-                  channels={channelsByCategory['uncategorized']}
-                  currentChannelId={currentChannelId}
-                  activeChannelId={activeChannel?.id || null}
-                  onAddMember={(channelId) => {
-                    setSelectedChannelId(channelId);
-                    setShowAddMemberModal(true);
-                  }}
-                  onEditChannel={handleEditChannel}
-                  onDeleteChannel={handleDeleteChannel}
-                />
-              )}
-            </div>
-            
-            {/* Drag overlay */}
-            <DragOverlay 
-              dropAnimation={{
-                duration: 200,
-                easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
-              }}
-              modifiers={[
-                ({ transform }) => ({
-                  ...transform,
-                  x: transform.x,
-                  y: transform.y - 15,
-                })
-              ]}
-            >
-              {activeChannel && (
-                <div className="flex items-center px-3 py-1 rounded bg-gray-700 opacity-90 w-56 shadow-lg border border-gray-600">
-                  {activeChannel.isPrivate ? (
-                    <LockIcon />
-                  ) : (
-                    <HashtagIcon />
-                  )}
-                  <span className="ml-2 truncate">{activeChannel.name}</span>
-                </div>
-              )}
-            </DragOverlay>
-          </DndContext>
-        )}
-      </div>
+                )}
+              </div>
+              
+              {/* Drag overlay */}
+              <DragOverlay 
+                dropAnimation={{
+                  duration: 200,
+                  easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
+                }}
+                modifiers={[
+                  ({ transform }) => ({
+                    ...transform,
+                    x: transform.x,
+                    y: transform.y - 15,
+                  })
+                ]}
+              >
+                {activeChannel && (
+                  <div className="flex items-center px-3 py-1 rounded bg-gray-700 opacity-90 w-56 shadow-lg border border-gray-600">
+                    {activeChannel.isPrivate ? (
+                      <LockIcon />
+                    ) : (
+                      <HashtagIcon />
+                    )}
+                    <span className="ml-2 truncate">{activeChannel.name}</span>
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          )}
+        </div>
+      ) : (
+        <div className="hidden"></div>
+      )}
       
       {/* モバイル表示時のオーバーレイ */}
-      {isSidebarOpen && (
+      {isClient && isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
           onClick={closeSidebar}

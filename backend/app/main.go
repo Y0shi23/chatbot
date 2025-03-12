@@ -133,6 +133,13 @@ func main() {
 			auth.GET("/me", authMiddleware(userService), authHandler.GetCurrentUser)
 		}
 
+		// ユーザー関連のエンドポイント
+		users := api.Group("/users", authMiddleware(userService))
+		{
+			users.GET("/me", authHandler.GetCurrentUser) // /api/auth/meと同じ機能
+			users.GET("/:id", authHandler.GetUserById)   // 特定のユーザー情報を取得
+		}
+
 		// チャット関連のエンドポイント
 		chats := api.Group("/chats", authMiddleware(userService))
 		{

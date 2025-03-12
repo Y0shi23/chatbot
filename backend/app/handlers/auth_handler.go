@@ -71,3 +71,27 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		"createdAt": user.CreatedAt,
 	})
 }
+
+// GetUserById returns a user by ID
+func (h *AuthHandler) GetUserById(c *gin.Context) {
+	// URLからユーザーIDを取得
+	userID := c.Param("id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ユーザーIDが指定されていません"})
+		return
+	}
+
+	// ユーザー情報を取得
+	user, err := h.userService.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
+		return
+	}
+
+	// ユーザー情報を返す
+	c.JSON(http.StatusOK, gin.H{
+		"id":        user.ID,
+		"username":  user.Username,
+		"createdAt": user.CreatedAt,
+	})
+}
