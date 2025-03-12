@@ -372,3 +372,45 @@ func (s *ServerService) DeleteChannel(channelId string) error {
 	// Commit the transaction
 	return tx.Commit()
 }
+
+// チャンネルを取得
+func (s *ServerService) GetChannelByID(channelID string) (models.Channel, error) {
+	var channel models.Channel
+	err := s.db.QueryRow(
+		"SELECT id, server_id, category_id, name, description, is_private, created_at, updated_at FROM channels WHERE id = $1",
+		channelID,
+	).Scan(
+		&channel.ID, &channel.ServerId, &channel.CategoryId, &channel.Name,
+		&channel.Description, &channel.IsPrivate, &channel.CreatedAt, &channel.UpdatedAt,
+	)
+	return channel, err
+}
+
+// UserHasAccessToChannel checks if a user has access to a channel
+func (s *ServerService) UserHasAccessToChannel(userID, channelID string) (bool, error) {
+	// First check if the channel is private
+	isPrivate, err := s.IsChannelPrivate(channelID)
+	if err != nil {
+		return false, err
+	}
+
+	// If the channel is not private, check if the user is a member of the server
+	if !isPrivate {
+		serverID, err := s.GetServerIdByChannelId(channelID)
+		if err != nil {
+			return false, err
+		}
+		return s.IsServerMember(serverID, userID)
+	}
+
+	// If the channel is private, check if the user is a member of the channel
+	var count int
+	err = s.db.QueryRow(
+		"SELECT COUNT(*) FROM channel_members WHERE channel_id = $1 AND user_id = $2",
+		channelID, userID,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}

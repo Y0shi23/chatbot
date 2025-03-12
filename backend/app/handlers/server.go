@@ -570,3 +570,34 @@ func (h *ServerHandler) DeleteChannel(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "チャンネルが削除されました"})
 }
+
+// GetChannel handles the retrieval of a channel by ID
+func (h *ServerHandler) GetChannel(c *gin.Context) {
+	channelID := c.Param("id")
+	if channelID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "チャンネルIDが必要です"})
+		return
+	}
+
+	// Get user ID from context
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+		return
+	}
+
+	channel, err := h.serverService.GetChannelByID(channelID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "チャンネルが見つかりません"})
+		return
+	}
+
+	// Check if user has access to this channel
+	hasAccess, err := h.serverService.UserHasAccessToChannel(userID.(string), channelID)
+	if err != nil || !hasAccess {
+		c.JSON(http.StatusForbidden, gin.H{"error": "このチャンネルにアクセスする権限がありません"})
+		return
+	}
+
+	c.JSON(http.StatusOK, channel)
+}

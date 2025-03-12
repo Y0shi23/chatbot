@@ -160,6 +160,7 @@ func main() {
 		// チャンネル関連のエンドポイント（従来のハンドラー - 後方互換性のため）
 		channels := api.Group("/channels", authMiddleware(userService))
 		{
+			channels.GET("/:id", serverHandler.GetChannel)
 			channels.GET("/:id/messages", messageHandler.GetChannelMessages)
 			channels.POST("/:id/messages", messageHandler.SendChannelMessage)
 			channels.PUT("/messages/:id", messageHandler.EditMessage)
