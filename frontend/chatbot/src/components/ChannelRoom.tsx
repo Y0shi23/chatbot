@@ -16,7 +16,6 @@ const getWebSocketUrl = () => {
   
   // 開発環境でのデバッグ用にモックWebSocketサーバーを使用するオプション
   if (process.env.NEXT_PUBLIC_USE_MOCK_WS === 'true') {
-    console.log('モックWebSocketサーバーを使用します');
     return 'ws://localhost:8080'; // モックWebSocketサーバーのURL
   }
   
@@ -29,16 +28,8 @@ const getWebSocketUrl = () => {
       const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = apiUrl.host; // ホスト名とポート番号を含む
       
-      console.log('WebSocket URL構築情報:', {
-        apiUrl: API_URL,
-        parsedUrl: apiUrl.toString(),
-        protocol: protocol,
-        host: host
-      });
-      
       // 環境変数で明示的に指定されている場合はそれを使用
       if (process.env.NEXT_PUBLIC_WS_URL) {
-        console.log('環境変数からWebSocket URLを使用:', process.env.NEXT_PUBLIC_WS_URL);
         return process.env.NEXT_PUBLIC_WS_URL;
       }
       
@@ -54,15 +45,11 @@ const getWebSocketUrl = () => {
     if (typeof window !== 'undefined') {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
-      console.log('フォールバックWebSocket URL構築:', { protocol, host });
       return `${protocol}//${host}`;
     }
   } catch (error) {
     console.error('フォールバックWebSocket URL構築エラー:', error);
   }
-  
-  // 最終フォールバック
-  console.log('最終フォールバックWebSocket URLを使用: ws://localhost:3000');
   return 'ws://localhost:3000';
 };
 
@@ -160,16 +147,6 @@ export default function ChannelRoom() {
   // サーバーID
   const [serverId, setServerId] = useState<string | null>(null);
 
-  // コンポーネントの初期化時にデバッグ情報を出力
-  console.log('ChannelRoomコンポーネントが初期化されました');
-  console.log('パラメータ:', params);
-  console.log('環境変数:', {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
-    NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL,
-    NEXT_PUBLIC_FRONTEND_URL: process.env.NEXT_PUBLIC_FRONTEND_URL,
-    NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL,
-  });
-
   // クライアントサイドでのレンダリングを検出
   useEffect(() => {
     setIsClient(true);
@@ -221,7 +198,6 @@ export default function ChannelRoom() {
         if (typeof window !== 'undefined' && 'WebSocket' in window) {
           connectWebSocket();
         } else {
-          console.log('WebSocketがサポートされていません。ポーリングモードで動作します。');
           setWsAvailable(false);
           startPolling();
         }
@@ -280,13 +256,10 @@ export default function ChannelRoom() {
         return;
       }
       
-      console.log(`チャンネルID ${params.id} のメッセージを取得中...`);
-      
       // ポーリング時は最後のメッセージID以降のメッセージのみを取得
       let url = `${API_URL}/api/channels/${params.id}/messages`;
       if (isPolling && lastMessageIdRef.current) {
         url += `?after=${lastMessageIdRef.current}`;
-        console.log(`最後のメッセージID ${lastMessageIdRef.current} 以降のメッセージを取得します`);
       }
       
       const response = await fetch(url, {
@@ -294,8 +267,6 @@ export default function ChannelRoom() {
           'Authorization': `Bearer ${token}`,
         },
       });
-
-      console.log('レスポンスステータス:', response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -327,7 +298,6 @@ export default function ChannelRoom() {
             const lastMessage = data[data.length - 1];
             if (lastMessage && lastMessage.id) {
               lastMessageIdRef.current = lastMessage.id;
-              console.log('最後のメッセージIDを更新:', lastMessageIdRef.current);
             }
             
             // ユーザー名を取得
@@ -340,7 +310,6 @@ export default function ChannelRoom() {
                 const existingIds = new Set(prevMessages.map(msg => msg.id));
                 // 重複しないメッセージのみをフィルタリング
                 const newMessages = messagesWithUsernames.filter((msg: Message) => !existingIds.has(msg.id));
-                console.log('新しいメッセージを追加:', newMessages.length);
                 
                 if (newMessages.length === 0) {
                   return prevMessages; // 新しいメッセージがなければ状態を更新しない
@@ -351,7 +320,6 @@ export default function ChannelRoom() {
             } else {
               // 初回読み込みの場合はすべてのメッセージを設定
               setMessages(messagesWithUsernames);
-              console.log('すべてのメッセージを設定:', messagesWithUsernames.length);
             }
           } else if (!isPolling) {
             // データが空で初回読み込みの場合は空の配列を設定
@@ -385,7 +353,6 @@ export default function ChannelRoom() {
             const lastMessage = data.messages[data.messages.length - 1];
             if (lastMessage && lastMessage.id) {
               lastMessageIdRef.current = lastMessage.id;
-              console.log('最後のメッセージIDを更新:', lastMessageIdRef.current);
             }
             
             // ユーザー名を取得
@@ -398,7 +365,6 @@ export default function ChannelRoom() {
                 const existingIds = new Set(prevMessages.map(msg => msg.id));
                 // 重複しないメッセージのみをフィルタリング
                 const newMessages = messagesWithUsernames.filter((msg: Message) => !existingIds.has(msg.id));
-                console.log('新しいメッセージを追加:', newMessages.length);
                 
                 if (newMessages.length === 0) {
                   return prevMessages; // 新しいメッセージがなければ状態を更新しない
@@ -409,7 +375,6 @@ export default function ChannelRoom() {
             } else {
               // 初回読み込みの場合はすべてのメッセージを設定
               setMessages(messagesWithUsernames);
-              console.log('すべてのメッセージを設定:', messagesWithUsernames.length);
             }
           } else if (!isPolling) {
             // データが空で初回読み込みの場合は空の配列を設定
@@ -475,7 +440,6 @@ export default function ChannelRoom() {
           
           const messageData = await messageResponse.json();
           messageId = messageData.id || messageData.message?.id;
-          console.log('メッセージを作成しました:', messageId);
         }
         
         // ファイルがある場合は、作成したメッセージIDを使ってファイルをアップロード
@@ -503,22 +467,12 @@ export default function ChannelRoom() {
               
               const emptyMessageData = await emptyMessageResponse.json();
               messageId = emptyMessageData.id || emptyMessageData.message?.id;
-              console.log('空のメッセージを作成しました:', messageId);
             } else {
               console.log('既存のメッセージIDを使用:', messageId);
             }
             
-            console.log('ファイルをアップロード中:', file.name, 'サイズ:', file.size, 'タイプ:', file.type, 'メッセージID:', messageId);
-            
             // 元のエンドポイントに戻す
             const uploadUrl = `${API_URL}/api/channels/${params.id}/upload`;
-            console.log('アップロードURL:', uploadUrl);
-            console.log('フォームデータ内容:', {
-              messageId: messageId,
-              fileName: file.name,
-              fileSize: file.size,
-              fileType: file.type
-            });
             
             // messageIdをフォームデータに含める
             formData.append('messageId', messageId);
@@ -574,7 +528,6 @@ export default function ChannelRoom() {
             }
             
             const responseData = await uploadResponse.json();
-            console.log('アップロード成功:', responseData);
           }
         }
       } 
@@ -685,6 +638,7 @@ export default function ChannelRoom() {
     if (!confirm('このメッセージを削除しますか？')) return;
 
     try {
+      
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_URL}/api/channels/messages/${messageId}`, {
         method: 'DELETE',
@@ -716,13 +670,15 @@ export default function ChannelRoom() {
           throw new Error(`メッセージの削除に失敗しました: ${errorText || response.statusText}`);
         }
       }
-
-      // WebSocketが接続されていない場合は、メッセージを再取得
+      
+      // 自分の画面では即時反映させるために、ローカルでメッセージを削除
+      handleMessageDelete(messageId);
+      
+      // WebSocketが接続されていない場合は、ポーリングでメッセージを再取得
       if (!wsConnected || !wsAvailable) {
-        fetchMessages();
+        fetchMessages(true);
       } else {
-        // WebSocketが接続されている場合は、UIを直接更新
-        handleMessageDelete(messageId);
+        console.log('WebSocketが接続されているため、WebSocketイベントでUIが更新されるのを待ちます');
       }
     } catch (err) {
       console.error('メッセージ削除エラー:', err);
@@ -763,7 +719,6 @@ export default function ChannelRoom() {
     }
     
     const fileUrl = `${API_URL}${normalizedPath}`;
-    console.log('Attachment URL:', fileUrl, 'Original path:', path);
     
     // Check if it's an image
     if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt)) {
@@ -899,7 +854,6 @@ export default function ChannelRoom() {
     setTimeout(() => {
       // 接続試行回数が上限に達した場合はポーリングに切り替え
       if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-        console.log(`WebSocket接続の試行回数が上限(${MAX_RECONNECT_ATTEMPTS}回)に達しました。ポーリングに切り替えます。`);
         setWsAvailable(false);
         startPolling();
         return;
@@ -908,16 +862,6 @@ export default function ChannelRoom() {
       // WebSocketの接続先URL（認証トークンとチャンネルIDを含める）
       // バックエンドの実装に合わせてパスを調整
       const wsUrl = `${WS_URL}/ws/channels/${params.id}?token=${token}`;
-      console.log('WebSocket接続を開始:', wsUrl);
-      console.log('現在の環境情報:', {
-        apiUrl: API_URL,
-        wsUrl: WS_URL,
-        fullWsUrl: wsUrl,
-        protocol: typeof window !== 'undefined' ? window.location.protocol : 'unknown',
-        host: typeof window !== 'undefined' ? window.location.host : 'unknown',
-        nodeEnv: process.env.NODE_ENV,
-        useMockWs: process.env.NEXT_PUBLIC_USE_MOCK_WS
-      });
       
       try {
         // WebSocketコンストラクタを使用
@@ -927,7 +871,6 @@ export default function ChannelRoom() {
         // 接続タイムアウト処理
         const connectionTimeoutId = setTimeout(() => {
           if (ws.readyState !== WebSocket.OPEN) {
-            console.log('WebSocket接続がタイムアウトしました');
             
             // イベントハンドラをクリアしてからクローズ
             try {
@@ -942,7 +885,6 @@ export default function ChannelRoom() {
             
             // 最初の接続試行でタイムアウトした場合は、すぐにポーリングに切り替える
             if (reconnectAttemptsRef.current === 0) {
-              console.log('WebSocketサーバーが応答しません。ポーリングに切り替えます。');
               setError(`WebSocketサーバーが応答しません。ポーリングモードで動作します。(URL: ${wsUrl})`);
               setWsAvailable(false);
               reconnectAttemptsRef.current = MAX_RECONNECT_ATTEMPTS;
@@ -965,7 +907,6 @@ export default function ChannelRoom() {
         
         // 接続イベント
         ws.onopen = () => {
-          console.log('WebSocket接続が確立されました');
           clearTimeout(connectionTimeoutId); // タイムアウトをクリア
           setWsConnected(true);
           setWsAvailable(true);
@@ -978,7 +919,6 @@ export default function ChannelRoom() {
         ws.onmessage = (event: MessageEvent) => {
           try {
             const data = JSON.parse(event.data);
-            console.log('WebSocketからメッセージを受信:', data);
             
             // メッセージタイプに応じた処理
             if (data.type === 'message') {
@@ -989,7 +929,14 @@ export default function ChannelRoom() {
               handleMessageUpdate(data.message);
             } else if (data.type === 'message_delete') {
               // メッセージが削除された場合
-              handleMessageDelete(data.messageId);
+              // サーバーからのフィールド名を正確に使用
+              if (data.MessageID) {
+                handleMessageDelete(data.MessageID);
+              } else {
+                console.error('メッセージ削除イベントにMessageIDがありません:', data);
+              }
+            } else {
+              console.log('未知のメッセージタイプを受信:', data.type);
             }
           } catch (err) {
             console.error('WebSocketメッセージの処理中にエラーが発生しました:', err);
@@ -1068,7 +1015,6 @@ export default function ChannelRoom() {
           }
           
           console.error('WebSocketエラー詳細:', errorDetails);
-          console.log('WebSocketの詳細:', wsState);
           
           // エラーメッセージを生成
           let displayErrorMessage = `WebSocketサーバーに接続できません。`;
@@ -1085,7 +1031,6 @@ export default function ChannelRoom() {
           
           // 最初の接続試行でエラーが発生した場合は、すぐにポーリングに切り替える
           if (reconnectAttemptsRef.current === 0) {
-            console.log('WebSocketサーバーが実装されていないか、接続できません。ポーリングに切り替えます。');
             setError(`${displayErrorMessage} ポーリングモードで動作します。`);
             setWsAvailable(false);
             reconnectAttemptsRef.current = MAX_RECONNECT_ATTEMPTS; // 再接続を試みないようにする
@@ -1097,7 +1042,6 @@ export default function ChannelRoom() {
             
             // 接続試行回数が上限に達した場合はポーリングに切り替え
             if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-              console.log(`WebSocket接続の試行回数が上限(${MAX_RECONNECT_ATTEMPTS}回)に達しました。ポーリングに切り替えます。`);
               setError(`${displayErrorMessage} 接続試行回数が上限に達したため、ポーリングモードに切り替えます。`);
               setWsAvailable(false);
               startPolling();
@@ -1115,7 +1059,6 @@ export default function ChannelRoom() {
         // 切断イベント
         ws.onclose = (event: CloseEvent) => {
           clearTimeout(connectionTimeoutId); // タイムアウトをクリア
-          console.log('WebSocket接続が閉じられました:', event.code, event.reason);
           setWsConnected(false);
           
           // 切断コードの意味を取得
@@ -1127,7 +1070,6 @@ export default function ChannelRoom() {
             
             // 接続試行回数が上限に達した場合はポーリングに切り替え
             if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-              console.log(`WebSocket接続の試行回数が上限(${MAX_RECONNECT_ATTEMPTS}回)に達しました。ポーリングに切り替えます。`);
               setError(`WebSocket接続が切断されました(コード: ${event.code} - ${closeReasonText})。接続試行回数が上限に達したため、ポーリングモードに切り替えます。`);
               setWsAvailable(false);
               startPolling();
@@ -1180,9 +1122,7 @@ export default function ChannelRoom() {
   // WebSocket接続を切断する関数
   const disconnectWebSocket = () => {
     if (wsRef.current) {
-      try {
-        console.log('WebSocket接続を切断します');
-        
+      try {        
         // 接続状態に応じた処理
         if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
           // イベントハンドラをクリア（エラー発生を防止）
@@ -1212,11 +1152,8 @@ export default function ChannelRoom() {
     // 既存のポーリングがあれば停止
     stopPolling();
     
-    console.log('メッセージポーリングを開始します');
-    
     // 5秒ごとにメッセージを取得
     pollingIntervalRef.current = setInterval(() => {
-      console.log('ポーリングによるメッセージ取得');
       fetchMessages(true); // ポーリングフラグをtrueに設定
     }, 5000);
   };
@@ -1226,7 +1163,6 @@ export default function ChannelRoom() {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
-      console.log('メッセージポーリングを停止しました');
     }
   };
   
@@ -1287,9 +1223,23 @@ export default function ChannelRoom() {
   
   // メッセージ削除を処理する関数
   const handleMessageDelete = (messageId: string) => {
-    setMessages(prevMessages => 
-      prevMessages.filter(msg => msg.id !== messageId)
-    );
+    if (!messageId) {
+      console.error('メッセージIDが指定されていません');
+      return;
+    }
+    
+    setMessages(prevMessages => {
+      // 削除前のメッセージ数
+      const beforeCount = prevMessages.length;
+      
+      // 指定されたIDのメッセージを除外
+      const filteredMessages = prevMessages.filter(msg => msg.id !== messageId);
+      
+      // 削除後のメッセージ数
+      const afterCount = filteredMessages.length;
+      
+      return filteredMessages;
+    });
   };
 
   // チャンネル名を取得する関数
@@ -1332,7 +1282,6 @@ export default function ChannelRoom() {
           // 現在のチャンネルIDに一致するチャンネルを探す
           const currentChannel = channels.find((channel: { id: string, name: string }) => channel.id === params.id);
           if (currentChannel) {
-            console.log('チャンネル情報:', currentChannel);
             setChannelName(currentChannel.name);
             return;
           }
@@ -1372,7 +1321,10 @@ export default function ChannelRoom() {
     if (wsConnected) {
       // 接続済み
       return (
-        <div className="flex items-center text-green-500 text-xs">
+        <div 
+          className="flex items-center text-green-500 text-xs cursor-pointer" 
+          title="クリックするとWebSocket接続状態の詳細をコンソールに出力します"
+        >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
@@ -1382,7 +1334,10 @@ export default function ChannelRoom() {
     } else if (wsAvailable) {
       // 接続試行中
       return (
-        <div className="flex items-center text-yellow-500 text-xs">
+        <div 
+          className="flex items-center text-yellow-500 text-xs cursor-pointer" 
+          title="クリックするとWebSocket接続状態の詳細をコンソールに出力します"
+        >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
@@ -1406,9 +1361,12 @@ export default function ChannelRoom() {
   const fetchServerOwnerInfo = async () => {
     try {
       const token = localStorage.getItem('token');
-      if (!token || !params.id) return;
-      
-      // チャンネルIDからサーバー情報を取得
+      if (!token) {
+        console.error('認証トークンがありません');
+        return;
+      }
+
+      // チャンネル情報を取得
       const response = await fetch(`${API_URL}/api/channels/${params.id}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -1420,18 +1378,24 @@ export default function ChannelRoom() {
         if (channelData.serverId) {
           setServerId(channelData.serverId);
           
-          // サーバー情報を取得
-          const serverResponse = await fetch(`${API_URL}/api/servers/${channelData.serverId}`, {
+          // サーバー情報を取得（サーバー一覧から該当するサーバーを探す）
+          const serversResponse = await fetch(`${API_URL}/api/servers`, {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
           });
           
-          if (serverResponse.ok) {
-            const serverData = await serverResponse.json();
-            // 現在のユーザーがサーバー所有者かどうかを確認
-            if (currentUserId && serverData.ownerId === currentUserId) {
-              setIsServerOwner(true);
+          if (serversResponse.ok) {
+            const serversData = await serversResponse.json();
+            const servers = serversData.servers || [];
+            
+            // 該当するサーバーを探す
+            const server = servers.find((s: any) => s.id === channelData.serverId);
+            if (server) {
+              // 現在のユーザーがサーバー所有者かどうかを確認
+              if (currentUserId && server.ownerId === currentUserId) {
+                setIsServerOwner(true);
+              }
             }
           }
         }
@@ -1449,7 +1413,6 @@ export default function ChannelRoom() {
       
       // ユーザーIDの一覧を取得
       const userIds = [...new Set(messages.map(msg => msg.userId))];
-      console.log('ユーザーID一覧:', userIds);
       
       // 現在のユーザー情報を取得
       let currentUser = null;
@@ -1462,7 +1425,6 @@ export default function ChannelRoom() {
         
         if (currentUserResponse.ok) {
           currentUser = await currentUserResponse.json();
-          console.log('現在のユーザー情報:', currentUser);
         } else {
           console.info('現在のユーザー情報の取得に失敗しました');
         }
@@ -1494,7 +1456,6 @@ export default function ChannelRoom() {
       );
       
       const users = await Promise.all(userPromises);
-      console.log('取得したユーザー情報:', users);
       
       // ユーザーIDとユーザー名のマッピングを作成
       const userMap = new Map();
@@ -1503,23 +1464,15 @@ export default function ChannelRoom() {
           userMap.set(user.id, user.username);
         }
       });
-      console.log('ユーザー名マッピング:', Object.fromEntries(userMap));
       
       // メッセージにユーザー名を追加
       const messagesWithUsernames = messages.map(msg => {
         const username = userMap.get(msg.userId);
-        console.log(`メッセージID: ${msg.id}, ユーザーID: ${msg.userId}, 取得したユーザー名: ${username}`);
         return {
           ...msg,
           username: username || `ユーザー`
         };
       });
-      
-      console.log('ユーザー名を追加したメッセージ:', messagesWithUsernames.map(msg => ({
-        id: msg.id,
-        userId: msg.userId,
-        username: msg.username
-      })));
       
       return messagesWithUsernames;
     } catch (error) {
@@ -1531,6 +1484,55 @@ export default function ChannelRoom() {
       }));
     }
   };
+
+  // WebSocketの接続状態をチェックする関数
+  const checkWebSocketConnection = () => {
+    
+    if (wsRef.current) {
+      console.log('- readyState:', wsRef.current.readyState);
+      switch (wsRef.current.readyState) {
+        case WebSocket.CONNECTING:
+          console.log('  (接続中)');
+          break;
+        case WebSocket.OPEN:
+          console.log('  (接続済み)');
+          break;
+        case WebSocket.CLOSING:
+          console.log('  (切断中)');
+          break;
+        case WebSocket.CLOSED:
+          console.log('  (切断済み)');
+          break;
+      }
+    }
+    
+    // 接続が切れている場合は再接続を試みる
+    if (wsAvailable && (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED)) {
+      connectWebSocket();
+    }
+  };
+  
+  // 定期的にWebSocketの接続状態をチェック
+  useEffect(() => {
+    if (!isClient) return;
+    
+    const checkInterval = setInterval(() => {
+      if (wsAvailable) {
+        checkWebSocketConnection();
+      }
+    }, 30000); // 30秒ごとにチェック
+    
+    return () => {
+      clearInterval(checkInterval);
+    };
+  }, [wsAvailable, isClient]);
+
+  // コンポーネントの初期化時にWebSocketの接続状態をチェック
+  useEffect(() => {
+    if (isClient) {
+      checkWebSocketConnection();
+    }
+  }, [isClient]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gradient-to-br from-indigo-50 to-blue-50">
@@ -1617,7 +1619,6 @@ export default function ChannelRoom() {
                       <div className="mb-2 flex justify-between items-center">
                         <span className="font-medium text-sm">
                           {(() => {
-                            console.log('メッセージユーザー名:', message.username, 'ユーザーID:', message.userId);
                             return message.username || 'ユーザー';
                           })()}
                         </span>
