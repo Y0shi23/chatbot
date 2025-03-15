@@ -8,6 +8,16 @@ type User = {
   username: string;
   email: string;
   createdAt: string;
+  chatworkId?: string;
+  skype?: string;
+  organization?: string;
+  department?: string;
+  position?: string;
+  location?: string;
+  url?: string;
+  phoneWork?: string;
+  phoneInternal?: string;
+  phoneMobile?: string;
 };
 
 // Auth context type
