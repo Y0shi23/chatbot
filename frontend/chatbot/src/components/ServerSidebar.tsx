@@ -18,6 +18,7 @@ import {
   useDraggable,
 } from '@dnd-kit/core';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
+import ContactManagementDialog from './ContactManagementDialog';
 
 // APIのベースURLを定義
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -397,6 +398,7 @@ export default function ServerSidebar() {
   // State for channel editing
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [showEditChannelModal, setShowEditChannelModal] = useState(false);
+  const [showFriendSearchDialog, setShowFriendSearchDialog] = useState(false);
 
   // Extract current channel ID from path if available
   const pathParts = pathname ? pathname.split('/') : [];
@@ -767,7 +769,7 @@ export default function ServerSidebar() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${token || ''}`,
         },
         body: JSON.stringify({ userId: userData.user.id }),
       });
@@ -832,15 +834,53 @@ export default function ServerSidebar() {
 
   // Handle invite friend
   const handleInviteFriend = () => {
-    // Implement invite functionality here
-    alert('友達を招待する機能は開発中です');
+    setShowFriendSearchDialog(true);
     setShowContextMenu(false);
   };
 
-  // Handle create category
-  const handleCreateCategory = () => {
-    setShowNewCategoryModal(true);
-    setShowContextMenu(false);
+  // Handle friend selection
+  const handleSelectFriend = async (user: { id: string; username: string }) => {
+    try {
+      // サーバーIDとチャンネルIDが存在する場合のみ処理を実行
+      if (selectedServer && selectedChannelId) {
+        // チャンネルにユーザーを追加するAPIを呼び出す
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/api/channels/${selectedChannelId}/members`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token || ''}`,
+          },
+          body: JSON.stringify({ userId: user.id }),
+        });
+
+        if (!response.ok) {
+          throw new Error('ユーザーの追加に失敗しました');
+        }
+
+        // 成功メッセージを表示
+        // アラートの代わりにToastやフィードバックを表示する実装に変更可能
+        console.log(`${user.username}さんをチャンネルに招待しました`);
+        
+        // 成功メッセージをユーザーに表示（実際のプロジェクトではToastなどを使用）
+        alert(`${user.username}さんをチャンネルに招待しました`);
+        
+        // ダイアログは閉じない
+      } else {
+        // アラートを表示せず、コンソールにログを出力するだけにする
+        console.log('サーバーまたはチャンネルが選択されていません');
+        
+        // ユーザーにフィードバックを表示
+        alert('サーバーまたはチャンネルが選択されていません。先にサーバーとチャンネルを選択してください。');
+      }
+    } catch (error) {
+      console.error('Error inviting user:', error);
+      // エラーメッセージもコンソールに出力するだけにする
+      console.error(`招待に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+      
+      // エラーメッセージをユーザーに表示
+      alert(`招待に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+    }
   };
 
   // Group channels by category
@@ -1363,7 +1403,10 @@ export default function ServerSidebar() {
               <li>
                 <button 
                   className="w-full text-left px-4 py-2 hover:bg-gray-700 text-white"
-                  onClick={handleCreateCategory}
+                  onClick={() => {
+                    setShowNewCategoryModal(true);
+                    setShowContextMenu(false);
+                  }}
                 >
                   カテゴリーを作成
                 </button>
@@ -1483,6 +1526,18 @@ export default function ServerSidebar() {
           </div>
         </div>
       )}
+
+      {/* コンタクト管理ダイアログ */}
+      <ContactManagementDialog
+        isOpen={showFriendSearchDialog}
+        onClose={() => setShowFriendSearchDialog(false)}
+        onSelectUser={handleSelectFriend}
+        onStartChat={(user) => {
+          // ダイレクトチャットを開始する処理をここに追加
+          console.log('ダイレクトチャット開始:', user);
+          // 例: router.push(`/direct/${user.id}`);
+        }}
+      />
     </>
   );
 } 

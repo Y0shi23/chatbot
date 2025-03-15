@@ -193,3 +193,39 @@ func (s *UserService) generateToken(userID string) (string, error) {
 
 	return tokenString, nil
 }
+
+// SearchUsers searches for users by username or email
+func (s *UserService) SearchUsers(query string, currentUserID string) ([]models.User, error) {
+	// Use LIKE query to search for users by username or email
+	rows, err := s.db.Query(`
+		SELECT id, username, email, created_at, updated_at 
+		FROM users 
+		WHERE (username ILIKE $1 OR email ILIKE $1) AND id != $2
+		LIMIT 10
+	`, "%"+query+"%", currentUserID)
+
+	if err != nil {
+		return nil, fmt.Errorf("error searching users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var user models.User
+		var createdAt, updatedAt time.Time
+
+		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &createdAt, &updatedAt); err != nil {
+			return nil, fmt.Errorf("error scanning user row: %w", err)
+		}
+
+		user.CreatedAt = createdAt
+		user.UpdatedAt = updatedAt
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating user rows: %w", err)
+	}
+
+	return users, nil
+}

@@ -95,3 +95,29 @@ func (h *AuthHandler) GetUserById(c *gin.Context) {
 		"createdAt": user.CreatedAt,
 	})
 }
+
+// SearchUsers handles user search requests
+func (h *AuthHandler) SearchUsers(c *gin.Context) {
+	// Get query parameter
+	query := c.Query("q")
+	if query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "検索クエリが必要です"})
+		return
+	}
+
+	// Get current user ID from context
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+		return
+	}
+
+	// Search for users
+	users, err := h.userService.SearchUsers(query, userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ユーザー検索に失敗しました"})
+		return
+	}
+
+	c.JSON(http.StatusOK, users)
+}

@@ -82,7 +82,7 @@ func main() {
 	userService := services.NewUserService(db)
 	authHandler := handlers.NewAuthHandler(userService)
 
-	// サーバーとメッセージのサービスとハンドラーの初期化
+	// サービスとハンドラーの初期化
 	serverService := services.NewServerService(db)
 	serverHandler := handlers.NewServerHandler(serverService)
 
@@ -138,6 +138,7 @@ func main() {
 		{
 			users.GET("/me", authHandler.GetCurrentUser) // /api/auth/meと同じ機能
 			users.GET("/:id", authHandler.GetUserById)   // 特定のユーザー情報を取得
+			users.GET("", authHandler.SearchUsers)       // ユーザー検索API
 		}
 
 		// チャット関連のエンドポイント
