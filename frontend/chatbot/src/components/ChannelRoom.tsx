@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
-import ServerSidebar from './ServerSidebar';
 import { useSidebar } from '@/context/SidebarContext';
 import { parseMessageContent } from '@/utils/messageParser';
 
@@ -1536,8 +1535,7 @@ export default function ChannelRoom() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-gradient-to-br from-indigo-50 to-blue-50">
-      <ServerSidebar />
-      <div className={`flex-1 flex flex-col ${isSidebarOpen ? 'ml-64' : 'ml-20'} transition-all duration-300`}>
+      <div className="flex-1 flex flex-col transition-all duration-300">
         <div className="bg-white shadow-sm p-4 flex justify-between items-center">
           <div className="flex items-center">
             <h1 className="text-xl font-semibold text-gray-800"># {channelName}</h1>
